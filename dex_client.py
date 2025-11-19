@@ -673,8 +673,15 @@ class DexCheckClient:
                         continue  # Пропускаємо цей провайдер
                     
                     # 🎯 АДАПТИВНІ ФІЛЬТРИ: м'якші для конвергенції, жорсткі для сигналів
-                    min_liquidity = 1000 if for_convergence else 2000
-                    min_volume = 100 if for_convergence else 5000  
+                    # 🔧 СПЕЦІАЛЬНІ ФІЛЬТРИ ПРИ АНОМАЛІЇ ЦІН: Дозволяємо USDT пари з нижчим обсягом
+                    if price_anomaly_detected and quote_symbol == 'USDT':
+                        min_liquidity = 1000 if for_convergence else 10000  # Мінімум $10k ліквідності
+                        min_volume = 100 if for_convergence else 1000  # 🔧 ЗНИЖЕНО: Мінімум $1k обсягу замість $5k
+                        logging.debug(f"🔧 {symbol}: Знижені фільтри для USDT пари при аномалії (L≥${min_liquidity}, V≥${min_volume})")
+                    else:
+                        min_liquidity = 1000 if for_convergence else 2000
+                        min_volume = 100 if for_convergence else 5000  
+                    
                     if (price > 0.000001 and liquidity >= min_liquidity and volume_24h >= min_volume):
                         
                         exact_pair_url = f"https://dexscreener.com/{chain_name}/{pair_address}" if pair_address else None
