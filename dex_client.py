@@ -616,6 +616,31 @@ class DexCheckClient:
                                            key=lambda p: float(p.get('liquidity', {}).get('usd', 0)), 
                                            reverse=True)
                 
+                # 🔧 ПЕРЕВІРКА АНОМАЛЬНИХ ЦІН між USDT і USDC парами
+                # Якщо є обидві пари, перевіряємо різницю цін
+                if usdt_pairs_sorted and usdc_pairs_sorted:
+                    best_usdt_price = float(usdt_pairs_sorted[0].get('priceUsd', 0))
+                    best_usdc_price = float(usdc_pairs_sorted[0].get('priceUsd', 0))
+                    
+                    if best_usdt_price > 0 and best_usdc_price > 0:
+                        # Розрахунок різниці цін у відсотках
+                        price_diff_pct = abs(best_usdt_price - best_usdc_price) / best_usdt_price * 100
+                        
+                        # Якщо різниця цін більша 5% - це аномалія (USDT і USDC повинні бути ~рівні)
+                        if price_diff_pct > 5.0:
+                            usdt_liquidity = float(usdt_pairs_sorted[0].get('liquidity', {}).get('usd', 0))
+                            usdc_liquidity = float(usdc_pairs_sorted[0].get('liquidity', {}).get('usd', 0))
+                            
+                            logging.warning(f"⚠️ {symbol}: Аномалія цін USDT=${best_usdt_price:.2f} vs USDC=${best_usdc_price:.2f} (різниця {price_diff_pct:.1f}%)")
+                            logging.warning(f"   USDT ліквідність: ${usdt_liquidity:,.0f} | USDC ліквідність: ${usdc_liquidity:,.0f}")
+                            
+                            # Якщо USDT пара має достатню ліквідність (>$10k), віддаємо їй пріоритет
+                            # навіть якщо USDC має більшу ліквідність
+                            if usdt_liquidity >= 10000:
+                                logging.info(f"✅ {symbol}: Використовуємо USDT пару через аномалію цін (ліквідність достатня)")
+                                # Видаляємо USDC пари зі списку через аномалію
+                                usdc_pairs_sorted = []
+                
                 # Формуємо пріоритизований список: USDT пари першими, потім USDC, потім інші
                 pairs = usdt_pairs_sorted + usdc_pairs_sorted + other_pairs_sorted
                 
