@@ -1566,11 +1566,13 @@ def symbol_worker(symbol):
                 'price_usd': advanced_metrics.get('price_usd', 0),
                 'liquidity': advanced_metrics.get('liquidity', 0),
                 'volume_24h': advanced_metrics.get('volume_24h', 0),
-                'dex_link': advanced_metrics.get('exact_pair_url') or get_proper_dexscreener_link(symbol)
+                'dex_link': advanced_metrics.get('exact_pair_url') or get_proper_dexscreener_link(symbol),
+                'quote_symbol': advanced_metrics.get('quote_symbol', 'USDT')  # 🔧 ДОДАНО: зберігаємо quote валюту
             }
             
             # Коротка інформація про токен (зменшено логування)
-            logging.info(f"📊 {symbol}: ${advanced_metrics.get('price_usd', 0):.6f} | Vol ${advanced_metrics.get('volume_1h', 0):,.0f}")
+            dex_quote = token_info.get('quote_symbol', 'USDT')
+            logging.info(f"📊 {symbol}: ${advanced_metrics.get('price_usd', 0):.6f} ({dex_quote}) | Vol ${advanced_metrics.get('volume_1h', 0):,.0f}")
                 
             if not token_info:
                 logging.debug(f"[{symbol}] ❌ Немає якісної пари на DexScreener")
