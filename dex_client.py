@@ -590,10 +590,37 @@ class DexCheckClient:
                     logging.debug(f"🔄 {symbol}: No BSC/ETH pairs found in search")
                     return None
                 
-                # Сортуємо за ліквідністю
-                pairs = sorted(filtered_pairs[:15], 
-                              key=lambda p: float(p.get('liquidity', {}).get('usd', 0)), 
-                              reverse=True)
+                # 🎯 ПРІОРИТИЗАЦІЯ ПАР ЗА QUOTE ВАЛЮТОЮ (USDT > USDC > інші)
+                # Розділяємо пари по quote валюті
+                usdt_pairs = []
+                usdc_pairs = []
+                other_pairs = []
+                
+                for p in filtered_pairs[:20]:  # Аналізуємо більше пар для кращого вибору
+                    quote_symbol = p.get('quoteToken', {}).get('symbol', '').upper()
+                    if quote_symbol == 'USDT':
+                        usdt_pairs.append(p)
+                    elif quote_symbol == 'USDC':
+                        usdc_pairs.append(p)
+                    else:
+                        other_pairs.append(p)
+                
+                # Сортуємо кожну групу за ліквідністю
+                usdt_pairs_sorted = sorted(usdt_pairs, 
+                                          key=lambda p: float(p.get('liquidity', {}).get('usd', 0)), 
+                                          reverse=True)
+                usdc_pairs_sorted = sorted(usdc_pairs, 
+                                          key=lambda p: float(p.get('liquidity', {}).get('usd', 0)), 
+                                          reverse=True)
+                other_pairs_sorted = sorted(other_pairs, 
+                                           key=lambda p: float(p.get('liquidity', {}).get('usd', 0)), 
+                                           reverse=True)
+                
+                # Формуємо пріоритизований список: USDT пари першими, потім USDC, потім інші
+                pairs = usdt_pairs_sorted + usdc_pairs_sorted + other_pairs_sorted
+                
+                # Логування для діагностики
+                logging.info(f"🔍 {symbol}: Знайдено пар - USDT: {len(usdt_pairs)}, USDC: {len(usdc_pairs)}, Інші: {len(other_pairs)}")
                 
                 for pair in pairs:
                     liquidity = float(pair.get('liquidity', {}).get('usd', 0))
