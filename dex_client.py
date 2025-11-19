@@ -977,7 +977,9 @@ class DexCheckClient:
                 'liquidity': liquidity_usd,
                 'volume_24h': volume_24h,
                 'chain': pair_data.get('chain', 'unknown'),  # НЕ 'chainId'!
-                'dex': pair_data.get('dex_id', 'unknown')   # НЕ 'dexId'!  
+                'dex': pair_data.get('dex_id', 'unknown'),   # НЕ 'dexId'!
+                'quote_symbol': pair_data.get('quote_symbol', 'USDT'),  # 🔧 ДОДАНО: передаємо quote валюту
+                'exact_pair_url': pair_data.get('exact_pair_url', '')  # 🔧 ДОДАНО: передаємо точне посилання на пару
             }
             
             # 🔬 РОЗШИРЕНІ МЕТРИКИ як у русских - ІМІТУЄМО російську систему
