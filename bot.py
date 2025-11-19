@@ -1605,9 +1605,10 @@ def symbol_worker(symbol):
         spread_pct = best_spread
         spread_store.append(spread_pct)
         
-        # Покращене логування тільки з XT та DexScreener
+        # Покращене логування тільки з XT та DexScreener + quote валюта
         clean_symbol = symbol.replace('/USDT:USDT', '')
-        log_info = f"XT: ${xt_price:.6f} | Dex: ${dex_price:.6f} | Спред: {best_spread:.2f}% {best_direction} | Торгуємо на: XT"
+        dex_quote = token_info.get('quote_symbol', 'USDT')
+        log_info = f"XT: ${xt_price:.6f} (USDT) | Dex: ${dex_price:.6f} ({dex_quote}) | Спред: {best_spread:.2f}% {best_direction} | Торгуємо на: XT"
         logging.info(f"[{clean_symbol}] {log_info}")
         
         # 🚀 НОВІ ФІШКИ: Розумна аналітика ПІСЛЯ встановлення trading_exchange
