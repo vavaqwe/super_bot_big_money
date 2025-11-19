@@ -627,6 +627,7 @@ class DexCheckClient:
                     price = float(pair.get('priceUsd', 0))
                     volume_24h = float(pair.get('volume', {}).get('h24', 0))
                     base_symbol = pair.get('baseToken', {}).get('symbol', '').upper()
+                    quote_symbol = pair.get('quoteToken', {}).get('symbol', 'USDT').upper()  # 🔧 ФІКС: отримуємо реальний quote symbol
                     
                     # Перевіряємо що це правильний токен
                     if base_symbol != symbol.upper():
@@ -659,7 +660,7 @@ class DexCheckClient:
                             'buy_percentage': (pair.get('txns', {}).get('h24', {}).get('buys', 0) / max(1, pair.get('txns', {}).get('h24', {}).get('buys', 0) + pair.get('txns', {}).get('h24', {}).get('sells', 0))) * 100,
                             'dex_id': dex_name,
                             'base_symbol': symbol,
-                            'quote_symbol': 'USDT',
+                            'quote_symbol': quote_symbol,  # 🔧 ФІКС: використовуємо реальний quote symbol
                             'token_address': pair.get('baseToken', {}).get('address', ''),
                             'market_cap': float(pair.get('marketCap', 0)),
                             'pair_address': pair_address,
@@ -668,7 +669,8 @@ class DexCheckClient:
                             'chain_name': chain_name
                         }
                         
-                        logging.info(f"🔄 {symbol}: DexScreener SUCCESS P=${price:.6f} L=${liquidity:,.0f} V=${volume_24h:,.0f}")
+                        # 🔍 ДЕТАЛЬНЕ ЛОГУВАННЯ з quote валютою для діагностики
+                        logging.info(f"🔄 {symbol}: DexScreener SUCCESS {base_symbol}/{quote_symbol} P=${price:.6f} L=${liquidity:,.0f} V=${volume_24h:,.0f}")
                         return pair_data
                 
                 # Якщо не знайдено якісних пар, retry
