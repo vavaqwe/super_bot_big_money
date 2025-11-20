@@ -11,6 +11,7 @@ from telegram_admin import run_telegram_bot
 # # # import gate_client  # Видалено - використовуємо тільки XT  # Removed: XT.com only system removed
 from xt_client import create_xt, load_xt_futures_markets, get_xt_price, is_xt_futures_tradeable, get_xt_futures_balance, xt_open_market_position, xt_close_position_market, analyze_xt_order_book_liquidity, fetch_xt_ticker, fetch_xt_order_book, get_xt_open_positions
 import xt_client
+import csv  # <--- ДОДАТИ ЦЕЙ РЯДОК
 
 # Helper functions for XT.com compatibility (replacing Gate.io functions)
 def fetch_ticker(exchange, symbol):
@@ -341,6 +342,36 @@ def save_positions_to_file():
     except Exception as e:
         logging.error(f"❌ Помилка збереження позицій: {e}")
         return False
+
+def log_trade_csv(symbol, side, price, size, leverage, trade_type="OPEN"):
+    """
+    Засує угоду у файл trade_history.csv
+    """
+    filename = "trade_history.csv"
+    file_exists = os.path.isfile(filename)
+    
+    try:
+        # Відкриваємо файл у режимі додавання ('a' - append)
+        with open(filename, mode='a', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            
+            # Якщо файл новий, спочатку пишемо заголовки стовпців
+            if not file_exists:
+                writer.writerow(["Time", "Symbol", "Side", "Type", "Price", "Size_USDT", "Leverage"])
+            
+            # Записуємо дані
+            writer.writerow([
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                symbol.replace('/USDT:USDT', ''), # Чистимо назву
+                side,
+                trade_type,
+                f"{price:.6f}",
+                f"{size:.2f}",
+                leverage
+            ])
+            logging.info(f"📝 Записано в CSV: {symbol} {side} ${size}")
+    except Exception as e:
+        logging.error(f"❌ Помилка запису в CSV: {e}")
 
 def load_positions_from_file():
     """Завантажує позиції з positions.json та оновлює expires_at для існуючих позицій"""
@@ -1118,6 +1149,14 @@ def monitor_open_positions():
                     if position_closed:
                         save_positions_to_file() # <--- ПЕРЕМІЩЕНО СЮДИ
                         check_and_update_blacklist(symbol, pnl_pct)
+                        log_trade_csv(
+                            symbol=symbol,
+                            side=position['side'],
+                            price=current_xt_price, # або ціна закриття
+                            size=position['size_usdt'],
+                            leverage=LEVERAGE,
+                            trade_type=f"CLOSE (PnL: {pnl_pct:.2f}%)"
+                        )
 
                     # ✅ ВІДПРАВЛЯЄМО ПОВІДОМЛЕННЯ ПРО ЗАКРИТТЯ ПОЗИЦІЇ
                     close_signal = f"✅ **ПОЗИЦІЮ ЗАКРИТО!**\n"\
@@ -2167,6 +2206,16 @@ def symbol_worker(symbol):
                             # Зберігаємо оновлені позиції
                             save_positions_to_file()
                             
+                            # --- 🔥 ДОДАЙТЕ ЦЕЙ БЛОК ТУТ ---
+                            log_trade_csv(
+                                symbol=symbol,
+                                side=side,
+                                price=ref_price,
+                                size=ORDER_AMOUNT,
+                                leverage=current_leverage,
+                                trade_type="OPEN"
+                            )
+
                             # 📱 ВІДПРАВЛЯЄМО ПРОФЕСІЙНЕ ПОВІДОМЛЕННЯ ПРО ВІДКРИТТЯ ПОЗИЦІЇ
                             try:
                                 from telegram_formatter import format_position_opened_message
