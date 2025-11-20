@@ -61,7 +61,7 @@ class DexCheckClient:
         self.provider_stats = {
             'coingecko_success': 0, 'coingecko_failed': 0, 'coingecko_429': 0
         }
-        self.last_request_time = {'coingecko': 0, 'dexscreener': 0}
+        self.last_request_time = {'coingecko': 0}
         
         # 💾 Кеш токенів та in-flight запити
         self.token_cache = {}
@@ -170,69 +170,59 @@ class DexCheckClient:
                     'name': 'Wrapped Bitcoin'
                 }
             }
-
+    
     def resolve_best_pair(self, symbol: str, for_convergence: bool = False) -> Optional[Dict]:
         """
-        🚀 ВИПРАВЛЕНИЙ ПРІОРИТЕТ: DexScreener -> CoinGecko -> Blockchain
-        Найбільш надійні та актуальні ціни з DexScreener!
+        🚀 MULTI-PROVIDER СИСТЕМА: Apify DexScreener + CoinGecko + DexScreener Fallback
+        Максимальне покриття 200+ токенів для арбітражу!
         """
         try:
-            clean_symbol = symbol.split('/')[0].split(':')[0].upper()
-            # clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '').upper()
+            clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '').upper()
             
             # 1. Перевіряємо кеш (окремий для конвергенції)
             cache_key = f"{clean_symbol}_best_pair{'_convergence' if for_convergence else ''}"
             if cache_key in self.token_cache:
                 cached_data = self.token_cache[cache_key]
-                # 🔧 ВИПРАВЛЕНО: збільшений кеш до 5 хвилин для стабільності
-                if time.time() - cached_data.get('cached_at', 0) < 300:
-                    logging.debug(f"💾 {clean_symbol}: Використовуємо кеш")
+                # Кеш на 3 хвилини для живих даних
+                if time.time() - cached_data.get('cached_at', 0) < 180:
+                    logging.info(f"💾 {clean_symbol}: Використовуємо кеш")
                     return cached_data
             
-            # 2. 🎯 ПРІОРИТЕТ 1: DexScreener Symbol Search (найбільш актуальні ціни!)
-            logging.info(f"🔄 {clean_symbol}: Пробуємо DexScreener (пріоритетний провайдер)")
-            dexscreener_data = self._try_dexscreener_symbol_search(clean_symbol, for_convergence)
-            if dexscreener_data and dexscreener_data.get('price_usd', 0) > 0:
-                # Валідація ціни - має бути реалістичною
-                price = dexscreener_data.get('price_usd', 0)
-                if self._validate_price(clean_symbol, price):
-                    logging.info(f"✅ {clean_symbol}: DexScreener SUCCESS! price=${price:.6f}")
-                    dexscreener_data['cached_at'] = time.time()
-                    dexscreener_data['provider'] = 'dexscreener'
-                    self.token_cache[cache_key] = dexscreener_data
-                    return dexscreener_data
-                else:
-                    logging.warning(f"❌ {clean_symbol}: DexScreener ціна нереалістична ${price:.6f}, пробуємо інші провайдери")
-            
-            # 3. FALLBACK 1: CoinGecko API (надійний провайдер)
-            logging.info(f"🪙 {clean_symbol}: Пробуємо CoinGecko fallback...")
-            coingecko_data = self._try_coingecko(clean_symbol)
-            if coingecko_data and coingecko_data.get('price_usd', 0) > 0:
-                price = coingecko_data.get('price_usd', 0)
-                if self._validate_price(clean_symbol, price):
-                    self.provider_stats['coingecko_success'] += 1
-                    coingecko_data['cached_at'] = time.time()
-                    coingecko_data['provider'] = 'coingecko'
-                    self.token_cache[cache_key] = coingecko_data
-                    logging.info(f"🪙 {clean_symbol}: CoinGecko SUCCESS! price=${price:.6f}")
-                    return coingecko_data
-                else:
-                    logging.warning(f"❌ {clean_symbol}: CoinGecko ціна нереалістична ${price:.6f}")
-            
-            # 4. FALLBACK 2: Прямі блокчейн пули (останній варіант)
+            # 2. 🚀 НОВИЙ ПРОВАЙДЕР: Прямі блокчейн пули (безкоштовно!)
             if BLOCKCHAIN_AVAILABLE and blockchain_client:
-                logging.info(f"🔥 {clean_symbol}: Пробуємо прямі блокчейн пули (останній fallback)")
+                logging.info(f"🔥 {clean_symbol}: Пробуємо прямі блокчейн пули (пріоритетний провайдер)")
                 blockchain_data = self._try_blockchain_direct(clean_symbol, for_convergence)
                 if blockchain_data and blockchain_data.get('price_usd', 0) > 0:
-                    price = blockchain_data.get('price_usd', 0)
-                    if self._validate_price(clean_symbol, price):
-                        logging.info(f"🚀 {clean_symbol}: BLOCKCHAIN SUCCESS! price=${price:.6f}")
-                        blockchain_data['cached_at'] = time.time()
-                        blockchain_data['provider'] = 'blockchain_direct'
-                        self.token_cache[cache_key] = blockchain_data
-                        return blockchain_data
-                    else:
-                        logging.warning(f"❌ {clean_symbol}: Блокчейн ціна нереалістична ${price:.6f}")
+                    logging.info(f"🚀 {clean_symbol}: BLOCKCHAIN SUCCESS! price=${blockchain_data.get('price_usd', 0):.6f}")
+                    blockchain_data['cached_at'] = time.time()
+                    blockchain_data['provider'] = 'blockchain_direct'
+                    self.token_cache[cache_key] = blockchain_data
+                    return blockchain_data
+                elif blockchain_data:
+                    logging.warning(f"🔥 {clean_symbol}: Блокчейн повернув нульову ціну ${blockchain_data.get('price_usd', 0):.6f}, спробуємо fallback")
+            else:
+                logging.debug(f"⚠️ {clean_symbol}: Блокчейн клієнт недоступний, пропускаємо")
+            
+            # 3. FALLBACK 1: CoinGecko API (безкоштовний, надійний провайдер)
+            coingecko_data = self._try_coingecko(clean_symbol)
+            if coingecko_data and coingecko_data.get('price_usd', 0) > 0:
+                self.provider_stats['coingecko_success'] += 1
+                coingecko_data['cached_at'] = time.time()
+                coingecko_data['provider'] = 'coingecko'
+                self.token_cache[cache_key] = coingecko_data
+                return coingecko_data
+            elif coingecko_data:
+                logging.warning(f"🪙 {clean_symbol}: CoinGecko повернув нульову ціну ${coingecko_data.get('price_usd', 0):.6f}, спробуємо fallback")
+            
+            # 🔄 FALLBACK 2: DexScreener Symbol Search коли Apify і CoinGecko не працюють
+            logging.info(f"🔄 {clean_symbol}: Apify і CoinGecko не знайшли, пробуємо DexScreener fallback...")
+            dexscreener_data = self._try_dexscreener_symbol_search(clean_symbol, for_convergence)
+            if dexscreener_data:
+                logging.info(f"✅ {clean_symbol}: Знайдено через DexScreener fallback")
+                dexscreener_data['cached_at'] = time.time()
+                dexscreener_data['provider'] = 'dexscreener_fallback'
+                self.token_cache[cache_key] = dexscreener_data
+                return dexscreener_data
             
             # 🚀 АВТОМАТИЧНЕ РОЗШИРЕННЯ: спробуємо знайти нову адресу
             if self.discovery_client and not for_convergence:
@@ -251,7 +241,7 @@ class DexCheckClient:
             
             # Жоден провайдер не спрацював
             self.provider_stats['coingecko_failed'] += 1
-            logging.warning(f"❌ {clean_symbol}: Не знайдено в жодному провайдері")
+            logging.warning(f"❌ {clean_symbol}: Не знайдено в CoinGecko (немає token mapping або немає ліквідності)")
             return None
             
         except Exception as e:
@@ -306,53 +296,12 @@ class DexCheckClient:
             logging.error(f"❌ Помилка прямих блокчейн пулів для {symbol}: {e}")
             return None
     
-    def _validate_price(self, symbol: str, price: float) -> bool:
-        """
-        🔧 Валідація цін токенів - перевіряє чи ціна реалістична
-        """
-        # Базові перевірки
-        if price <= 0:
-            return False
-        
-        # Занадто мала ціна (менше $0.000001)
-        if price < 0.000001:
-            logging.warning(f"⚠️ {symbol}: Ціна занадто мала ${price:.10f}")
-            return False
-        
-        # Приблизні діапазони цін для великих токенів (антиспам фільтр)
-        known_ranges = {
-            'BTC': (10000, 200000),  # 🔧 РОЗШИРЕНО: BTC може досягати $200k
-            'ETH': (1000, 10000),
-            'BNB': (200, 1000),
-            'SOL': (10, 500),
-            'XRP': (0.1, 10),
-            'ADA': (0.1, 5),
-            'DOGE': (0.01, 1),
-            'MATIC': (0.1, 5),
-            'DOT': (1, 50),
-            'AVAX': (5, 200),
-            'LINK': (2, 100),
-            'UNI': (2, 50),
-            'ATOM': (2, 50),
-            'LTC': (20, 500),
-            'ETC': (5, 100)
-        }
-        
-        # Перевіряємо відомі токени
-        if symbol in known_ranges:
-            min_price, max_price = known_ranges[symbol]
-            if price < min_price or price > max_price:
-                logging.warning(f"⚠️ {symbol}: Ціна ${price:.6f} поза очікуваним діапазоном ${min_price}-${max_price}")
-                return False
-        
-        # Універсальна перевірка для невідомих токенів - не більше $200,000
-        if price > 200000:
-            logging.warning(f"⚠️ {symbol}: Ціна НЕРЕАЛЬНА ${price:.2f} > $200,000")
-            return False
-        
-        return True
-
     def _try_coingecko(self, symbol: str) -> Optional[Dict]:
+        """
+        🚀 CoinGecko API - безкоштовний, надійний провайдер даних
+        Використовує CoinGecko token IDs для отримання актуальних цін
+        """
+        # Mapping символів на CoinGecko token IDs
         symbol_to_coingecko = {
             'BTC': 'bitcoin',
             'ETH': 'ethereum', 
@@ -442,292 +391,158 @@ class DexCheckClient:
             'SYN': 'synapse-2',
             'TRIBE': 'tribe-2',
             'UNFI': 'unifi-protocol-dao',
-            'YGG': 'yield-guild-games',
-            'IMX': 'immutable-x',
-            'LDO': 'lido-dao',
-            # ВАШЕ ВИПРАВЛЕННЯ ТУТ
-            'KAIA': 'kaia-coin', 
-            'BAN': 'banano',
-            'ORCA': 'orca', 
-            'MOVE': 'move-to-earn',
-            'GOAT': 'goat-coin',
+            'YGG': 'yield-guild-games'
         }
         
         coingecko_id = symbol_to_coingecko.get(symbol.upper())
         if not coingecko_id:
-            logging.debug(f"🔄 {symbol}: Немає CoinGecko ID mapping, пропускаємо CoinGecko")
+            logging.info(f"🔄 {symbol}: Немає CoinGecko ID mapping, пропускаємо CoinGecko")
             return None
         
-        # 🔧 ВИПРАВЛЕНО: Exponential backoff для retry логіки
-        max_retries = 3
-        base_delay = 1.5
-        
-        for attempt in range(max_retries):
-            try:
-                # Rate limiting для CoinGecko (збільшено до 2 секунд для стабільності)
-                self._apply_rate_limit('coingecko', min_interval=2.0)
-                
-                # CoinGecko simple price endpoint
-                url = f"{self.coingecko_base_url}/simple/price"
-                
-                params = {
-                    'ids': coingecko_id,
-                    'vs_currencies': 'usd',
-                    'include_market_cap': 'true',
-                    'include_24hr_vol': 'true',
-                    'include_24hr_change': 'true'
-                }
-                
-                # DEBUG logging тільки на першій спробі
-                if attempt == 0:
-                    logging.debug(f"🪙 Пробуємо CoinGecko: {symbol} (id={coingecko_id})")
-                
-                response = self.coingecko_session.get(url, params=params, timeout=20)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    # 🔧 ВИПРАВЛЕННЯ: перевірка на пустий response
-                    if not data or not isinstance(data, dict) or coingecko_id not in data:
-                        if attempt < max_retries - 1:
-                            delay = base_delay * (2 ** attempt)
-                            logging.debug(f"🪙 CoinGecko empty response для {symbol}, retry {attempt+1}/{max_retries} через {delay}s")
-                            time.sleep(delay)
-                            continue
-                        logging.warning(f"🪙 CoinGecko empty response для {symbol} після {max_retries} спроб")
-                        return None
-                    
-                    token_data = data[coingecko_id]
-                    if token_data and isinstance(token_data, dict):
-                        parsed_data = self._parse_coingecko_response(token_data, symbol, coingecko_id)
-                        if parsed_data:
-                            logging.debug(f"🪙 {symbol}: CoinGecko SUCCESS! price=${parsed_data.get('price_usd', 0):.6f}")
-                            return parsed_data
-                        else:
-                            if attempt < max_retries - 1:
-                                delay = base_delay * (2 ** attempt)
-                                time.sleep(delay)
-                                continue
-                            logging.warning(f"🚨 CoinGecko parsing failed для {symbol}")
-                            
-                elif response.status_code == 429:
-                    self.provider_stats['coingecko_429'] += 1
-                    # Exponential backoff при rate limit
-                    delay = base_delay * (2 ** attempt) * 2  # Подвійна затримка при rate limit
-                    logging.warning(f"🚨 CoinGecko rate limit для {symbol}, чекаємо {delay}s")
-                    if attempt < max_retries - 1:
-                        time.sleep(delay)
-                        continue
-                    return None
-                else:
-                    # Інші HTTP помилки
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)
-                        logging.debug(f"🚨 CoinGecko {response.status_code} для {symbol}, retry {attempt+1}/{max_retries}")
-                        time.sleep(delay)
-                        continue
-                    logging.warning(f"🚨 CoinGecko {response.status_code} для {symbol}: {response.text[:200]}")
+        try:
+            # Rate limiting для CoinGecko (50 calls/min = ~1.2s між запитами)
+            self._apply_rate_limit('coingecko', min_interval=1.2)
             
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logging.debug(f"🚨 CoinGecko exception для {symbol}: {e}, retry {attempt+1}/{max_retries}")
-                    time.sleep(delay)
-                    continue
-                logging.warning(f"🚨 CoinGecko exception для {symbol} після {max_retries} спроб: {e}")
+            # CoinGecko simple price endpoint
+            url = f"{self.coingecko_base_url}/simple/price"
+            
+            params = {
+                'ids': coingecko_id,
+                'vs_currencies': 'usd',
+                'include_market_cap': 'true',
+                'include_24hr_vol': 'true',
+                'include_24hr_change': 'true'
+            }
+            
+            # INFO-level logging з правильними параметрами
+            logging.info(f"🪙 Пробуємо CoinGecko: {symbol} (id={coingecko_id})")
+            
+            response = self.coingecko_session.get(url, params=params, timeout=20)
+            
+            if response.status_code == 200:
+                data = response.json()
+                # 🔧 DEBUG: логіруємо повну відповідь API
+                logging.info(f"🪙 CoinGecko RESPONSE для {symbol}: {str(data)[:500]}...")
+                
+                # 🔧 ВИПРАВЛЕННЯ: перевірка на пустий response
+                if not data or not isinstance(data, dict) or coingecko_id not in data:
+                    logging.warning(f"🪙 CoinGecko empty response для {symbol}")
+                    return None
+                
+                token_data = data[coingecko_id]
+                if token_data and isinstance(token_data, dict):
+                    parsed_data = self._parse_coingecko_response(token_data, symbol, coingecko_id)
+                    if parsed_data:
+                        logging.info(f"🪙 {symbol}: CoinGecko SUCCESS! price=${parsed_data.get('price_usd', 0):.6f}")
+                        return parsed_data
+                    else:
+                        logging.warning(f"🚨 CoinGecko parsing failed для {symbol}")
+                        
+            elif response.status_code == 429:
+                self.provider_stats['coingecko_429'] += 1
+                logging.warning(f"🚨 CoinGecko rate limit hit для {symbol}")
+                return None
+            else:
+                # АРХІТЕКТОР: WARNING-level для non-200 responses
+                logging.warning(f"🚨 CoinGecko {response.status_code} для {symbol}: {response.text[:200]}")
+        
+        except Exception as e:
+            logging.warning(f"🚨 CoinGecko exception для {symbol}: {e}")
         
         return None
     
+    
     def _try_dexscreener_symbol_search(self, symbol: str, for_convergence: bool = False) -> Optional[Dict]:
         """
-        🔄 ПРІОРИТЕТНИЙ ПРОВАЙДЕР: пошук по символу через DexScreener search API
-        З exponential backoff та retry логікою для стабільності
+        🔄 ДОДАТКОВИЙ FALLBACK: пошук по символу через DexScreener search API
+        Для токенів які не знайдені через address-based lookup
         """
-        # 🔧 ВИПРАВЛЕНО: Retry логіка з exponential backoff
-        max_retries = 3
-        base_delay = 1.0
-        
-        for attempt in range(max_retries):
-            try:
-                # ⏱️ Rate limiting для DexScreener (збільшено до 1.5 секунди)
-                self._apply_rate_limit('dexscreener', 5.0)
-                
-                # Symbol-based search через DexScreener search API
-                search_url = f"https://api.dexscreener.com/latest/dex/search/?q={symbol}"
-                
-                response = self.dexscreener_session.get(search_url, timeout=20)
-                
-                if response.status_code != 200:
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)
-                        logging.debug(f"🔄 {symbol}: DexScreener {response.status_code}, retry {attempt+1}/{max_retries} через {delay}s")
-                        time.sleep(delay)
-                        continue
-                    logging.debug(f"🔄 {symbol}: DexScreener search endpoint {response.status_code}")
-                    return None
-                    
-                data = response.json()
-                if not data or not data.get('pairs'):
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)
-                        logging.debug(f"🔄 {symbol}: DexScreener no pairs, retry {attempt+1}/{max_retries}")
-                        time.sleep(delay)
-                        continue
-                    logging.debug(f"🔄 {symbol}: DexScreener search no pairs")
-                    return None
-                
-                # Фільтруємо по всім дозволеним мережам з config.ALLOWED_CHAINS
-                from config import ALLOWED_CHAINS
-                allowed_chains = ALLOWED_CHAINS
-                filtered_pairs = [p for p in data['pairs'] if p.get('chainId') in allowed_chains]
-                
-                if not filtered_pairs:
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)
-                        logging.debug(f"🔄 {symbol}: No allowed chain pairs, retry {attempt+1}/{max_retries}")
-                        time.sleep(delay)
-                        continue
-                    logging.debug(f"🔄 {symbol}: No BSC/ETH pairs found in search")
-                    return None
-                
-                # 🎯 ПРІОРИТИЗАЦІЯ ПАР ЗА QUOTE ВАЛЮТОЮ (USDT > USDC > інші)
-                # Розділяємо пари по quote валюті
-                usdt_pairs = []
-                usdc_pairs = []
-                other_pairs = []
-                
-                for p in filtered_pairs[:20]:  # Аналізуємо більше пар для кращого вибору
-                    quote_symbol = p.get('quoteToken', {}).get('symbol', '').upper()
-                    if quote_symbol == 'USDT':
-                        usdt_pairs.append(p)
-                    elif quote_symbol == 'USDC':
-                        usdc_pairs.append(p)
-                    else:
-                        other_pairs.append(p)
-                
-                # Сортуємо кожну групу за ліквідністю
-                usdt_pairs_sorted = sorted(usdt_pairs, 
-                                          key=lambda p: float(p.get('liquidity', {}).get('usd', 0)), 
-                                          reverse=True)
-                usdc_pairs_sorted = sorted(usdc_pairs, 
-                                          key=lambda p: float(p.get('liquidity', {}).get('usd', 0)), 
-                                          reverse=True)
-                other_pairs_sorted = sorted(other_pairs, 
-                                           key=lambda p: float(p.get('liquidity', {}).get('usd', 0)), 
-                                           reverse=True)
-                
-                # 🔧 ПЕРЕВІРКА АНОМАЛЬНИХ ЦІН між USDT і USDC парами
-                # Якщо є обидві пари, перевіряємо різницю цін
-                price_anomaly_detected = False
-                if usdt_pairs_sorted and usdc_pairs_sorted:
-                    best_usdt_price = float(usdt_pairs_sorted[0].get('priceUsd', 0))
-                    best_usdc_price = float(usdc_pairs_sorted[0].get('priceUsd', 0))
-                    
-                    if best_usdt_price > 0 and best_usdc_price > 0:
-                        # Розрахунок різниці цін у відсотках
-                        price_diff_pct = abs(best_usdt_price - best_usdc_price) / best_usdt_price * 100
-                        
-                        # Якщо різниця цін більша 5% - це аномалія (USDT і USDC повинні бути ~рівні)
-                        if price_diff_pct > 5.0:
-                            usdt_liquidity = float(usdt_pairs_sorted[0].get('liquidity', {}).get('usd', 0))
-                            usdc_liquidity = float(usdc_pairs_sorted[0].get('liquidity', {}).get('usd', 0))
-                            
-                            logging.warning(f"⚠️ {symbol}: Аномалія цін USDT=${best_usdt_price:.2f} vs USDC=${best_usdc_price:.2f} (різниця {price_diff_pct:.1f}%)")
-                            logging.warning(f"   USDT ліквідність: ${usdt_liquidity:,.0f} | USDC ліквідність: ${usdc_liquidity:,.0f}")
-                            
-                            # Якщо USDT пара має достатню ліквідність (>$10k), віддаємо їй пріоритет
-                            # і ігноруємо ВСІХ інші пари (USDC і інші токени)
-                            if usdt_liquidity >= 10000:
-                                logging.info(f"✅ {symbol}: Використовуємо ТІЛЬКИ USDT пару через аномалію цін (ліквідність достатня)")
-                                # Видаляємо USDC пари та інші пари зі списку через аномалію
-                                usdc_pairs_sorted = []
-                                other_pairs_sorted = []  # 🔧 КРИТИЧНО: ігноруємо також WBNB та інші пари
-                                price_anomaly_detected = True
-                
-                # Формуємо пріоритизований список: USDT пари першими, потім USDC, потім інші
-                pairs = usdt_pairs_sorted + usdc_pairs_sorted + other_pairs_sorted
-                
-                # Логування для діагностики
-                logging.info(f"🔍 {symbol}: Знайдено пар - USDT: {len(usdt_pairs)}, USDC: {len(usdc_pairs)}, Інші: {len(other_pairs)}")
-                
-                for pair in pairs:
-                    liquidity = float(pair.get('liquidity', {}).get('usd', 0))
-                    price = float(pair.get('priceUsd', 0))
-                    volume_24h = float(pair.get('volume', {}).get('h24', 0))
-                    base_symbol = pair.get('baseToken', {}).get('symbol', '').upper()
-                    quote_symbol = pair.get('quoteToken', {}).get('symbol', 'USDT').upper()  # 🔧 ФІКС: отримуємо реальний quote symbol
-                    
-                    # Перевіряємо що це правильний токен
-                    if base_symbol != symbol.upper():
-                        continue
-                        
-                    # 🔗 ОТРИМУЄМО ТОЧНУ DEX ПАРУ з DexScreener
-                    pair_address = pair.get('pairAddress', '')
-                    chain_name = pair.get('chainId', 'ethereum')
-                    dex_name = pair.get('dexId', 'unknown')
-                    
-                    # 🎯 ФІЛЬТРАЦІЯ DEX ПРОВАЙДЕРІВ: тільки найкращі провайдери
-                    from config import ALLOWED_DEX_PROVIDERS
-                    if dex_name.lower() not in [provider.lower() for provider in ALLOWED_DEX_PROVIDERS]:
-                        logging.debug(f"🚫 {symbol}: Пропускаємо {dex_name} (не в списку дозволених провайдерів)")
-                        continue  # Пропускаємо цей провайдер
-                    
-                    # 🎯 АДАПТИВНІ ФІЛЬТРИ: м'якші для конвергенції, жорсткі для сигналів
-                    # 🔧 СПЕЦІАЛЬНІ ФІЛЬТРИ ПРИ АНОМАЛІЇ ЦІН: Дозволяємо USDT пари з нижчим обсягом
-                    if price_anomaly_detected and quote_symbol == 'USDT':
-                        min_liquidity = 1000 if for_convergence else 10000  # Мінімум $10k ліквідності
-                        min_volume = 100 if for_convergence else 1000  # 🔧 ЗНИЖЕНО: Мінімум $1k обсягу замість $5k
-                        logging.debug(f"🔧 {symbol}: Знижені фільтри для USDT пари при аномалії (L≥${min_liquidity}, V≥${min_volume})")
-                    else:
-                        min_liquidity = 1000 if for_convergence else 2000
-                        min_volume = 100 if for_convergence else 5000  
-                    
-                    if (price > 0.000001 and liquidity >= min_liquidity and volume_24h >= min_volume):
-                        
-                        exact_pair_url = f"https://dexscreener.com/{chain_name}/{pair_address}" if pair_address else None
-                        
-                        pair_data = {
-                            'price_usd': price,
-                            'liquidity_usd': liquidity,
-                            'volume_24h': volume_24h,
-                            'chain': chain_name,
-                            'transactions_24h': pair.get('txns', {}).get('h24', {}).get('buys', 0) + pair.get('txns', {}).get('h24', {}).get('sells', 0),
-                            'buy_percentage': (pair.get('txns', {}).get('h24', {}).get('buys', 0) / max(1, pair.get('txns', {}).get('h24', {}).get('buys', 0) + pair.get('txns', {}).get('h24', {}).get('sells', 0))) * 100,
-                            'dex_id': dex_name,
-                            'base_symbol': symbol,
-                            'quote_symbol': quote_symbol,  # 🔧 ФІКС: використовуємо реальний quote symbol
-                            'token_address': pair.get('baseToken', {}).get('address', ''),
-                            'market_cap': float(pair.get('marketCap', 0)),
-                            'pair_address': pair_address,
-                            'dex_name': dex_name,
-                            'exact_pair_url': exact_pair_url,
-                            'chain_name': chain_name
-                        }
-                        
-                        # 🔍 ДЕТАЛЬНЕ ЛОГУВАННЯ з quote валютою для діагностики
-                        logging.info(f"🔄 {symbol}: DexScreener SUCCESS {base_symbol}/{quote_symbol} P=${price:.6f} L=${liquidity:,.0f} V=${volume_24h:,.0f}")
-                        return pair_data
-                
-                # Якщо не знайдено якісних пар, retry
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logging.debug(f"🔄 {symbol}: No quality pairs, retry {attempt+1}/{max_retries}")
-                    time.sleep(delay)
-                    continue
-                    
-                logging.debug(f"🔄 {symbol}: DexScreener - no quality pairs found після {max_retries} спроб")
+        try:
+            # ⏱️ Rate limiting для DexScreener (1 секунда між запитами)
+            self._apply_rate_limit('dexscreener', 1.0)
+            
+            # Symbol-based search через DexScreener search API
+            search_url = f"https://api.dexscreener.com/latest/dex/search/?q={symbol}"
+            
+            response = self.dexscreener_session.get(search_url, timeout=20)
+            if response.status_code != 200:
+                logging.debug(f"🔄 {symbol}: DexScreener search endpoint {response.status_code}")
                 return None
                 
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logging.debug(f"DexScreener exception для {symbol}: {e}, retry {attempt+1}/{max_retries}")
-                    time.sleep(delay)
-                    continue
-                logging.debug(f"DexScreener exception для {symbol} після {max_retries} спроб: {e}")
+            data = response.json()
+            if not data or not data.get('pairs'):
+                logging.debug(f"🔄 {symbol}: DexScreener search no pairs for {symbol}")
                 return None
-        
-        return None
+            
+            # Фільтруємо по всім дозволеним мережам з config.ALLOWED_CHAINS
+            from config import ALLOWED_CHAINS
+            allowed_chains = ALLOWED_CHAINS
+            filtered_pairs = [p for p in data['pairs'] if p.get('chainId') in allowed_chains]
+            
+            if not filtered_pairs:
+                logging.debug(f"🔄 {symbol}: No BSC/ETH pairs found in search")
+                return None
+            
+            # Сортуємо за ліквідністю
+            pairs = sorted(filtered_pairs[:15], 
+                          key=lambda p: float(p.get('liquidity', {}).get('usd', 0)), 
+                          reverse=True)
+            
+            for pair in pairs:
+                liquidity = float(pair.get('liquidity', {}).get('usd', 0))
+                price = float(pair.get('priceUsd', 0))
+                volume_24h = float(pair.get('volume', {}).get('h24', 0))
+                base_symbol = pair.get('baseToken', {}).get('symbol', '').upper()
+                
+                # Перевіряємо що це правильний токен
+                if base_symbol != symbol.upper():
+                    continue
+                    
+                # 🔗 ОТРИМУЄМО ТОЧНУ DEX ПАРУ з DexScreener
+                pair_address = pair.get('pairAddress', '')
+                chain_name = pair.get('chainId', 'ethereum')
+                dex_name = pair.get('dexId', 'unknown')
+                
+                # 🎯 ФІЛЬТРАЦІЯ DEX ПРОВАЙДЕРІВ: тільки найкращі провайдери
+                from config import ALLOWED_DEX_PROVIDERS
+                if dex_name.lower() not in [provider.lower() for provider in ALLOWED_DEX_PROVIDERS]:
+                    logging.debug(f"🚫 {symbol}: Пропускаємо {dex_name} (не в списку дозволених провайдерів {ALLOWED_DEX_PROVIDERS})")
+                    continue  # Пропускаємо цей провайдер
+                
+                # 🎯 АДАПТИВНІ ФІЛЬТРИ: м'якші для конвергенції, жорсткі для сигналів
+                min_liquidity = 1000 if for_convergence else 2000
+                min_volume = 100 if for_convergence else 5000  
+                if (price > 0.000001 and liquidity >= min_liquidity and volume_24h >= min_volume):
+                    
+                    exact_pair_url = f"https://dexscreener.com/{chain_name}/{pair_address}" if pair_address else None
+                    
+                    pair_data = {
+                        'price_usd': price,
+                        'liquidity_usd': liquidity,
+                        'volume_24h': volume_24h,
+                        'chain': chain_name,
+                        'transactions_24h': pair.get('txns', {}).get('h24', {}).get('buys', 0) + pair.get('txns', {}).get('h24', {}).get('sells', 0),
+                        'buy_percentage': (pair.get('txns', {}).get('h24', {}).get('buys', 0) / max(1, pair.get('txns', {}).get('h24', {}).get('buys', 0) + pair.get('txns', {}).get('h24', {}).get('sells', 0))) * 100,
+                        'dex_id': dex_name,
+                        'base_symbol': symbol,
+                        'quote_symbol': 'USDT',
+                        'token_address': pair.get('baseToken', {}).get('address', ''),
+                        'market_cap': float(pair.get('marketCap', 0)),
+                        'pair_address': pair_address,
+                        'dex_name': dex_name,
+                        'exact_pair_url': exact_pair_url,
+                        'chain_name': chain_name
+                    }
+                    
+                    logging.info(f"🔄 {symbol}: DexScreener SYMBOL search P=${price:.6f} L=${liquidity:,.0f} V=${volume_24h:,.0f}")
+                    return pair_data
+            
+            logging.debug(f"🔄 {symbol}: DexScreener symbol search - no quality pairs found")
+            return None
+            
+        except Exception as e:
+            logging.debug(f"DexScreener symbol search помилка для {symbol}: {e}")
+            return None
     
     def _parse_dexcheck_response(self, data: Dict, symbol: str, token_info: Dict) -> Optional[Dict]:
         """
@@ -1012,9 +827,7 @@ class DexCheckClient:
                 'liquidity': liquidity_usd,
                 'volume_24h': volume_24h,
                 'chain': pair_data.get('chain', 'unknown'),  # НЕ 'chainId'!
-                'dex': pair_data.get('dex_id', 'unknown'),   # НЕ 'dexId'!
-                'quote_symbol': pair_data.get('quote_symbol', 'USDT'),  # 🔧 ДОДАНО: передаємо quote валюту
-                'exact_pair_url': pair_data.get('exact_pair_url', '')  # 🔧 ДОДАНО: передаємо точне посилання на пару
+                'dex': pair_data.get('dex_id', 'unknown')   # НЕ 'dexId'!  
             }
             
             # 🔬 РОЗШИРЕНІ МЕТРИКИ як у русских - ІМІТУЄМО російську систему
