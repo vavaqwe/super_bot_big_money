@@ -227,88 +227,170 @@ class MarketConditionsMonitor:
                 'btc_1h_change': None,
                 'timestamp': datetime.now().isoformat()
             }
-    
-    def should_switch_to_bull(self, rsi_threshold: float, fg_threshold: int, btc_growth_threshold: float) -> Tuple[bool, str]:
+
+    def should_switch_to_bull(self, rsi_threshold, fear_greed_threshold, btc_growth_threshold, btc_price_threshold):
         """
-        Перевіряє чи потрібно переключитися на BULL режим
-        Повертає (True/False, причина)
-        """
-        try:
-            conditions = self.check_all_conditions()
-            
-            # Перевіряємо чи всі дані доступні
-            if None in [conditions['btc_rsi'], conditions['fear_greed'], conditions['btc_1h_change']]:
-                return False, "Недостатньо даних для прийняття рішення"
-            
-            rsi = conditions['btc_rsi']
-            fg = conditions['fear_greed']
-            btc_change = conditions['btc_1h_change']
-            
-            # Перевіряємо всі умови для переходу в BULL
-            rsi_ok = rsi > rsi_threshold
-            fg_ok = fg > fg_threshold
-            btc_ok = btc_change > btc_growth_threshold
-            
-            if rsi_ok and fg_ok and btc_ok:
-                reason = (f"✅ BULL умови виконано: RSI={rsi:.1f}>{rsi_threshold}, "
-                         f"F&G={fg}>{fg_threshold}, BTC={btc_change:+.2f}%>{btc_growth_threshold}%")
-                return True, reason
-            
-            # Якщо не всі умови виконані
-            reasons = []
-            if not rsi_ok:
-                reasons.append(f"RSI={rsi:.1f}<={rsi_threshold}")
-            if not fg_ok:
-                reasons.append(f"F&G={fg}<={fg_threshold}")
-            if not btc_ok:
-                reasons.append(f"BTC={btc_change:+.2f}%<={btc_growth_threshold}%")
-            
-            return False, f"❌ BULL умови не виконано: {', '.join(reasons)}"
-            
-        except Exception as e:
-            logger.error(f"❌ Помилка перевірки умов переходу в BULL: {e}")
-            return False, f"Помилка: {str(e)}"
-    
-    def should_switch_to_conservative(self, rsi_threshold: float, fg_threshold: int, btc_decline_threshold: float) -> Tuple[bool, str]:
-        """
-        Перевіряє чи потрібно переключитися на CONSERVATIVE режим
-        Повертає (True/False, причина)
+        Перевіряє чи варто перемикатись в BULL режим
+        Умови (OR):
+        1. BTC ціна вище порогу (напр. 100k)
+        2. RSI вище порогу (напр. 50)
+        3. Fear & Greed вище порогу (напр. 45)
+        4. BTC ріст за годину вище порогу (напр. 3%)
         """
         try:
-            conditions = self.check_all_conditions()
-            
-            # Перевіряємо чи всі дані доступні
-            if None in [conditions['btc_rsi'], conditions['fear_greed'], conditions['btc_1h_change']]:
-                return False, "Недостатньо даних для прийняття рішення"
-            
-            rsi = conditions['btc_rsi']
-            fg = conditions['fear_greed']
-            btc_change = conditions['btc_1h_change']
-            
-            # Перевіряємо всі умови для переходу в CONSERVATIVE
-            rsi_ok = rsi < rsi_threshold
-            fg_ok = fg < fg_threshold
-            btc_ok = btc_change < btc_decline_threshold
-            
-            if rsi_ok and fg_ok and btc_ok:
-                reason = (f"✅ CONSERVATIVE умови виконано: RSI={rsi:.1f}<{rsi_threshold}, "
-                         f"F&G={fg}<{fg_threshold}, BTC={btc_change:+.2f}%<{btc_decline_threshold}%")
-                return True, reason
-            
-            # Якщо не всі умови виконані
             reasons = []
-            if not rsi_ok:
-                reasons.append(f"RSI={rsi:.1f}>={rsi_threshold}")
-            if not fg_ok:
-                reasons.append(f"F&G={fg}>={fg_threshold}")
-            if not btc_ok:
-                reasons.append(f"BTC={btc_change:+.2f}%>={btc_decline_threshold}%")
             
-            return False, f"❌ CONSERVATIVE умови не виконано: {', '.join(reasons)}"
+            # 1. Перевірка ціни BTC
+            btc_data = self.get_btc_data()
+            if btc_data:
+                current_price = btc_data.get('price', 0)
+                growth = btc_data.get('growth_1h', 0)
+                
+                # Перевірка абсолютної ціни
+                if current_price > btc_price_threshold:
+                    logging.info(f"🐂 BULL SIGNAL: BTC Price ${current_price} > ${btc_price_threshold}")
+                    return True, f"BTC Price break: ${current_price:.0f} > ${btc_price_threshold}"
+
+                # Перевірка росту
+                if growth > btc_growth_threshold:
+                    logging.info(f"🐂 BULL SIGNAL: BTC Growth {growth:.2f}% > {btc_growth_threshold}%")
+                    return True, f"BTC Pump: +{growth:.2f}% in 1h"
+            
+            # 2. Перевірка Fear & Greed
+            fg_index = self.get_fear_and_greed_index()
+            if fg_index and fg_index > fear_greed_threshold:
+                logging.info(f"🐂 BULL SIGNAL: Fear&Greed {fg_index} > {fear_greed_threshold}")
+                return True, f"Sentiment improved: F&G {fg_index}"
+                
+            # 3. Перевірка RSI (через біткоїн або загальний ринок)
+            # Тут можна додати логіку RSI, якщо у вас є джерело
+            # поки що повертаємо False якщо інші умови не спрацювали
+            
+            return False, ""
             
         except Exception as e:
-            logger.error(f"❌ Помилка перевірки умов переходу в CONSERVATIVE: {e}")
-            return False, f"Помилка: {str(e)}"
+            logging.error(f"Error in bull check: {e}")
+            return False, ""
+
+    def should_switch_to_conservative(self, rsi_threshold, fear_greed_threshold, btc_decline_threshold, btc_price_threshold):
+        """
+        Перевіряє чи варто перемикатись в CONSERVATIVE режим
+        Умови (OR):
+        1. BTC ціна нижче порогу (напр. 98k)
+        2. RSI нижче порогу (напр. 45)
+        3. Fear & Greed нижче порогу (напр. 35)
+        4. BTC падіння за годину більше порогу (напр. -2%)
+        """
+        try:
+            # 1. Перевірка ціни BTC
+            btc_data = self.get_btc_data()
+            if btc_data:
+                current_price = btc_data.get('price', 0)
+                growth = btc_data.get('growth_1h', 0)
+                
+                # Перевірка абсолютної ціни
+                if current_price > 0 and current_price < btc_price_threshold:
+                    logging.info(f"🛡️ CONSERVATIVE SIGNAL: BTC Price ${current_price} < ${btc_price_threshold}")
+                    return True, f"BTC Price drop: ${current_price:.0f} < ${btc_price_threshold}"
+
+                # Перевірка падіння (наприклад growth < -2.0)
+                if growth < btc_decline_threshold:
+                    logging.info(f"🛡️ CONSERVATIVE SIGNAL: BTC Dump {growth:.2f}% < {btc_decline_threshold}%")
+                    return True, f"BTC Dump: {growth:.2f}% in 1h"
+            
+            # 2. Перевірка Fear & Greed
+            fg_index = self.get_fear_and_greed_index()
+            if fg_index and fg_index < fear_greed_threshold:
+                logging.info(f"🛡️ CONSERVATIVE SIGNAL: Fear&Greed {fg_index} < {fear_greed_threshold}")
+                return True, f"Market Fear: F&G {fg_index}"
+            
+            return False, ""
+            
+        except Exception as e:
+            logging.error(f"Error in conservative check: {e}")
+            return False, ""
+    
+    # def should_switch_to_bull(self, rsi_threshold: float, fg_threshold: int, btc_growth_threshold: float) -> Tuple[bool, str]:
+    #     """
+    #     Перевіряє чи потрібно переключитися на BULL режим
+    #     Повертає (True/False, причина)
+    #     """
+    #     try:
+    #         conditions = self.check_all_conditions()
+            
+    #         # Перевіряємо чи всі дані доступні
+    #         if None in [conditions['btc_rsi'], conditions['fear_greed'], conditions['btc_1h_change']]:
+    #             return False, "Недостатньо даних для прийняття рішення"
+            
+    #         rsi = conditions['btc_rsi']
+    #         fg = conditions['fear_greed']
+    #         btc_change = conditions['btc_1h_change']
+            
+    #         # Перевіряємо всі умови для переходу в BULL
+    #         rsi_ok = rsi > rsi_threshold
+    #         fg_ok = fg > fg_threshold
+    #         btc_ok = btc_change > btc_growth_threshold
+            
+    #         if rsi_ok and fg_ok and btc_ok:
+    #             reason = (f"✅ BULL умови виконано: RSI={rsi:.1f}>{rsi_threshold}, "
+    #                      f"F&G={fg}>{fg_threshold}, BTC={btc_change:+.2f}%>{btc_growth_threshold}%")
+    #             return True, reason
+            
+    #         # Якщо не всі умови виконані
+    #         reasons = []
+    #         if not rsi_ok:
+    #             reasons.append(f"RSI={rsi:.1f}<={rsi_threshold}")
+    #         if not fg_ok:
+    #             reasons.append(f"F&G={fg}<={fg_threshold}")
+    #         if not btc_ok:
+    #             reasons.append(f"BTC={btc_change:+.2f}%<={btc_growth_threshold}%")
+            
+    #         return False, f"❌ BULL умови не виконано: {', '.join(reasons)}"
+            
+    #     except Exception as e:
+    #         logger.error(f"❌ Помилка перевірки умов переходу в BULL: {e}")
+    #         return False, f"Помилка: {str(e)}"
+    
+    # def should_switch_to_conservative(self, rsi_threshold: float, fg_threshold: int, btc_decline_threshold: float) -> Tuple[bool, str]:
+    #     """
+    #     Перевіряє чи потрібно переключитися на CONSERVATIVE режим
+    #     Повертає (True/False, причина)
+    #     """
+    #     try:
+    #         conditions = self.check_all_conditions()
+            
+    #         # Перевіряємо чи всі дані доступні
+    #         if None in [conditions['btc_rsi'], conditions['fear_greed'], conditions['btc_1h_change']]:
+    #             return False, "Недостатньо даних для прийняття рішення"
+            
+    #         rsi = conditions['btc_rsi']
+    #         fg = conditions['fear_greed']
+    #         btc_change = conditions['btc_1h_change']
+            
+    #         # Перевіряємо всі умови для переходу в CONSERVATIVE
+    #         rsi_ok = rsi < rsi_threshold
+    #         fg_ok = fg < fg_threshold
+    #         btc_ok = btc_change < btc_decline_threshold
+            
+    #         if rsi_ok and fg_ok and btc_ok:
+    #             reason = (f"✅ CONSERVATIVE умови виконано: RSI={rsi:.1f}<{rsi_threshold}, "
+    #                      f"F&G={fg}<{fg_threshold}, BTC={btc_change:+.2f}%<{btc_decline_threshold}%")
+    #             return True, reason
+            
+    #         # Якщо не всі умови виконані
+    #         reasons = []
+    #         if not rsi_ok:
+    #             reasons.append(f"RSI={rsi:.1f}>={rsi_threshold}")
+    #         if not fg_ok:
+    #             reasons.append(f"F&G={fg}>={fg_threshold}")
+    #         if not btc_ok:
+    #             reasons.append(f"BTC={btc_change:+.2f}%>={btc_decline_threshold}%")
+            
+    #         return False, f"❌ CONSERVATIVE умови не виконано: {', '.join(reasons)}"
+            
+    #     except Exception as e:
+    #         logger.error(f"❌ Помилка перевірки умов переходу в CONSERVATIVE: {e}")
+    #         return False, f"Помилка: {str(e)}"
 
 
 # Глобальний екземпляр монітора

@@ -138,7 +138,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(status_text, parse_mode='Markdown')
 
 async def positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show active positions from both XT.com accounts"""
+    """Show active positions from both XT.com accounts with REAL-TIME PnL SYNC"""
     if not is_authorized(update.effective_user.id):
         return
     
@@ -147,12 +147,16 @@ async def positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_positions = False
         total_positions = 0
         
-        # XT.com АКАУНТ 1
+        # Імпортуємо необхідне для отримання свіжої ціни
+        import bot
+        from xt_client import get_xt_open_positions, create_xt, fetch_xt_ticker
+        from bot import calculate_pnl_percentage
+        
+        # Створюємо клієнт для отримання свіжих цін
+        xt_client_instance = create_xt()
+        
+        # --- XT.com АКАУНТ 1 ---
         try:
-            import bot
-            from xt_client import get_xt_open_positions
-            from bot import calculate_pnl_percentage
-            
             xt_positions_1 = get_xt_open_positions(bot.xt_account_1)
             logging.info(f"📊 XT.com АКАУНТ 1: знайдено {len(xt_positions_1)} позицій")
             
@@ -161,13 +165,30 @@ async def positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for pos in xt_positions_1:
                     has_positions = True
                     total_positions += 1
-                    clean_symbol = pos['symbol'].replace('/USDT:USDT', '')
+                    symbol = pos['symbol']
+                    clean_symbol = symbol.replace('/USDT:USDT', '')
                     side_emoji = "🟢" if pos['side'].upper() == "LONG" else "🔴"
                     
+                    # 🔥 СИНХРОНІЗАЦІЯ PnL: Отримуємо свіжу ціну (Last Price), як у моніторингу
+                    try:
+                        ticker = fetch_xt_ticker(xt_client_instance, symbol)
+                        if ticker and 'last' in ticker:
+                            current_price = float(ticker['last'])
+                            # Підставляємо свіжу ціну в об'єкт позиції для розрахунку
+                            pos['currentPrice'] = current_price
+                            pos['markPrice'] = current_price  # Перезаписуємо для точності
+                    except Exception as e:
+                        logging.warning(f"Не вдалося отримати свіжу ціну для {symbol}: {e}")
+
+                    # Розрахунок PnL з використанням свіжої ціни
                     percentage = calculate_pnl_percentage(pos)
+                    
                     size_contracts = float(pos.get('contracts', 0) or pos.get('size', 0) or 0)
                     size_usdt = float(pos.get('notional', 0) or pos.get('size_usdt', 0) or 5.0)
+                    
+                    # Розрахунок USDT PnL на основі відсотка
                     unrealized_pnl = (percentage / 100) * size_usdt if percentage != 0 else 0.0
+                    
                     pnl_emoji = "💚" if percentage >= 0 else "❤️"
                     
                     positions_text += f"📈 **{clean_symbol}**\n"
@@ -177,15 +198,11 @@ async def positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 positions_text += "❌ Немає позицій\n\n"
         except Exception as e:
-            positions_text += f"❌ Помилка: {str(e)}\n\n"
+            positions_text += f"❌ Помилка Acc 1: {str(e)}\n\n"
             logging.error(f"XT.com АКАУНТ 1 позиції помилка: {e}")
         
-        # XT.com АКАУНТ 2
+        # --- XT.com АКАУНТ 2 ---
         try:
-            import bot
-            from xt_client import get_xt_open_positions
-            from bot import calculate_pnl_percentage
-            
             xt_positions_2 = get_xt_open_positions(bot.xt_account_2)
             logging.info(f"📊 XT.com АКАУНТ 2: знайдено {len(xt_positions_2)} позицій")
             
@@ -194,10 +211,22 @@ async def positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for pos in xt_positions_2:
                     has_positions = True
                     total_positions += 1
-                    clean_symbol = pos['symbol'].replace('/USDT:USDT', '')
+                    symbol = pos['symbol']
+                    clean_symbol = symbol.replace('/USDT:USDT', '')
                     side_emoji = "🟢" if pos['side'].upper() == "LONG" else "🔴"
                     
+                    # 🔥 СИНХРОНІЗАЦІЯ PnL: Отримуємо свіжу ціну
+                    try:
+                        ticker = fetch_xt_ticker(xt_client_instance, symbol)
+                        if ticker and 'last' in ticker:
+                            current_price = float(ticker['last'])
+                            pos['currentPrice'] = current_price
+                            pos['markPrice'] = current_price
+                    except Exception as e:
+                        logging.warning(f"Не вдалося отримати свіжу ціну для {symbol}: {e}")
+
                     percentage = calculate_pnl_percentage(pos)
+                    
                     size_contracts = float(pos.get('contracts', 0) or pos.get('size', 0) or 0)
                     size_usdt = float(pos.get('notional', 0) or pos.get('size_usdt', 0) or 5.0)
                     unrealized_pnl = (percentage / 100) * size_usdt if percentage != 0 else 0.0
@@ -210,7 +239,7 @@ async def positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 positions_text += "❌ Немає позицій\n\n"
         except Exception as e:
-            positions_text += f"❌ Помилка: {str(e)}\n\n"
+            positions_text += f"❌ Помилка Acc 2: {str(e)}\n\n"
             logging.error(f"XT.com АКАУНТ 2 позиції помилка: {e}")
         
         if not has_positions:
@@ -228,93 +257,184 @@ async def positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(positions_text, parse_mode='Markdown')
 
-async def signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show current arbitrage signals"""
-    if not is_authorized(update.effective_user.id):
-        return
+# async def positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     """Show active positions from both XT.com accounts"""
+#     if not is_authorized(update.effective_user.id):
+#         return
     
-    # Отримуємо поточні спреди з бота
-    current_signals = []
-    
-    # Проходимось по активних символах і показуємо топ арбітражні можливості
-    from utils import get_shared_dex_client
-    from xt_client import create_xt, fetch_xt_ticker
-    
-    try:
-        xt = create_xt()
-        signals_text = "📡 **АРБІТРАЖНІ СИГНАЛИ** (DexScreener)\n\n"
+#     try:
+#         positions_text = "💼 **АКТИВНІ ПОЗИЦІЇ (РЕАЛЬНІ):**\n\n"
+#         has_positions = False
+#         total_positions = 0
         
-        # Беремо перші 10 символів для швидкого огляду
-        active_symbols = [s for s, enabled in bot.trade_symbols.items() if enabled][:10]
-        
-        for symbol in active_symbols:
-            try:
-                # Отримуємо ціни
-                ticker = fetch_xt_ticker(xt, symbol)
-                if not ticker:
-                    continue
+#         # XT.com АКАУНТ 1
+#         try:
+#             import bot
+#             from xt_client import get_xt_open_positions
+#             from bot import calculate_pnl_percentage
+            
+#             xt_positions_1 = get_xt_open_positions(bot.xt_account_1)
+#             logging.info(f"📊 XT.com АКАУНТ 1: знайдено {len(xt_positions_1)} позицій")
+            
+#             positions_text += "⚡ **АКАУНТ 1:**\n"
+#             if xt_positions_1:
+#                 for pos in xt_positions_1:
+#                     has_positions = True
+#                     total_positions += 1
+#                     clean_symbol = pos['symbol'].replace('/USDT:USDT', '')
+#                     side_emoji = "🟢" if pos['side'].upper() == "LONG" else "🔴"
                     
-                xt_price = float(ticker['last'])
+#                     percentage = calculate_pnl_percentage(pos)
+#                     size_contracts = float(pos.get('contracts', 0) or pos.get('size', 0) or 0)
+#                     size_usdt = float(pos.get('notional', 0) or pos.get('size_usdt', 0) or 5.0)
+#                     unrealized_pnl = (percentage / 100) * size_usdt if percentage != 0 else 0.0
+#                     pnl_emoji = "💚" if percentage >= 0 else "❤️"
+                    
+#                     positions_text += f"📈 **{clean_symbol}**\n"
+#                     positions_text += f"{side_emoji} {pos['side'].upper()} | 💵 {size_contracts:.4f} контрактів\n"
+#                     positions_text += f"💰 Розмір: **${size_usdt:.2f} USDT** | 📋 Баланс: **{size_contracts:.4f} {clean_symbol}**\n"
+#                     positions_text += f"{pnl_emoji} PnL: **${unrealized_pnl:.2f}** ({percentage:.2f}%)\n\n"
+#             else:
+#                 positions_text += "❌ Немає позицій\n\n"
+#         except Exception as e:
+#             positions_text += f"❌ Помилка: {str(e)}\n\n"
+#             logging.error(f"XT.com АКАУНТ 1 позиції помилка: {e}")
+        
+#         # XT.com АКАУНТ 2
+#         try:
+#             import bot
+#             from xt_client import get_xt_open_positions
+#             from bot import calculate_pnl_percentage
+            
+#             xt_positions_2 = get_xt_open_positions(bot.xt_account_2)
+#             logging.info(f"📊 XT.com АКАУНТ 2: знайдено {len(xt_positions_2)} позицій")
+            
+#             positions_text += "⚡ **АКАУНТ 2:**\n"
+#             if xt_positions_2:
+#                 for pos in xt_positions_2:
+#                     has_positions = True
+#                     total_positions += 1
+#                     clean_symbol = pos['symbol'].replace('/USDT:USDT', '')
+#                     side_emoji = "🟢" if pos['side'].upper() == "LONG" else "🔴"
+                    
+#                     percentage = calculate_pnl_percentage(pos)
+#                     size_contracts = float(pos.get('contracts', 0) or pos.get('size', 0) or 0)
+#                     size_usdt = float(pos.get('notional', 0) or pos.get('size_usdt', 0) or 5.0)
+#                     unrealized_pnl = (percentage / 100) * size_usdt if percentage != 0 else 0.0
+#                     pnl_emoji = "💚" if percentage >= 0 else "❤️"
+                    
+#                     positions_text += f"📈 **{clean_symbol}**\n"
+#                     positions_text += f"{side_emoji} {pos['side'].upper()} | 💵 {size_contracts:.4f} контрактів\n"
+#                     positions_text += f"💰 Розмір: **${size_usdt:.2f} USDT** | 📋 Баланс: **{size_contracts:.4f} {clean_symbol}**\n"
+#                     positions_text += f"{pnl_emoji} PnL: **${unrealized_pnl:.2f}** ({percentage:.2f}%)\n\n"
+#             else:
+#                 positions_text += "❌ Немає позицій\n\n"
+#         except Exception as e:
+#             positions_text += f"❌ Помилка: {str(e)}\n\n"
+#             logging.error(f"XT.com АКАУНТ 2 позиції помилка: {e}")
+        
+#         if not has_positions:
+#             positions_text += "━━━━━━━━━━━━━━━━━━━━\n"
+#             positions_text += "📊 **ПІДСУМОК:**\n"
+#             positions_text += "❌ Немає відкритих позицій на жодному акаунті\n"
+#             positions_text += "🤖 Бот активно сканує можливості для торгівлі..."
+#         else:
+#             positions_text += "━━━━━━━━━━━━━━━━━━━━\n"
+#             positions_text += f"📊 **ЗАГАЛОМ: {total_positions} позицій**"
+    
+#     except Exception as e:
+#         positions_text = f"❌ **ПОМИЛКА ОТРИМАННЯ ПОЗИЦІЙ:**\n\n{str(e)}"
+#         logging.error(f"Глобальна помилка позицій: {e}")
+    
+#     await update.message.reply_text(positions_text, parse_mode='Markdown')
+
+# async def signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     """Show current arbitrage signals"""
+#     if not is_authorized(update.effective_user.id):
+#         return
+    
+#     # Отримуємо поточні спреди з бота
+#     current_signals = []
+    
+#     # Проходимось по активних символах і показуємо топ арбітражні можливості
+#     from utils import get_shared_dex_client
+#     from xt_client import create_xt, fetch_xt_ticker
+    
+#     try:
+#         xt = create_xt()
+#         signals_text = "📡 **АРБІТРАЖНІ СИГНАЛИ** (DexScreener)\n\n"
+        
+#         # Беремо перші 10 символів для швидкого огляду
+#         active_symbols = [s for s, enabled in bot.trade_symbols.items() if enabled][:10]
+        
+#         for symbol in active_symbols:
+#             try:
+#                 # Отримуємо ціни
+#                 ticker = fetch_xt_ticker(xt, symbol)
+#                 if not ticker:
+#                     continue
+                    
+#                 xt_price = float(ticker['last'])
                 
-                # Отримуємо повну інформацію про токен
-                dex_client = get_shared_dex_client()
-                # Отримуємо інформацію через resolve_best_pair
-                token_info = dex_client.resolve_best_pair(symbol.replace('/USDT:USDT', ''))
-                if not token_info:
-                    continue
+#                 # Отримуємо повну інформацію про токен
+#                 dex_client = get_shared_dex_client()
+#                 # Отримуємо інформацію через resolve_best_pair
+#                 token_info = dex_client.resolve_best_pair(symbol.replace('/USDT:USDT', ''))
+#                 if not token_info:
+#                     continue
                     
-                dex_price = token_info.get('price_usd', 0)
+#                 dex_price = token_info.get('price_usd', 0)
                 
-                if dex_price and dex_price > 0.000001:
-                    # Розраховуємо спред
-                    spread_pct = ((dex_price - xt_price) / xt_price) * 100
+#                 if dex_price and dex_price > 0.000001:
+#                     # Розраховуємо спред
+#                     spread_pct = ((dex_price - xt_price) / xt_price) * 100
                     
-                    # Фільтруємо фейки
-                    is_realistic = True
-                    price_ratio = max(xt_price, dex_price) / min(xt_price, dex_price)
-                    min_liquidity = token_info.get('liquidity_usd', 0)
+#                     # Фільтруємо фейки
+#                     is_realistic = True
+#                     price_ratio = max(xt_price, dex_price) / min(xt_price, dex_price)
+#                     min_liquidity = token_info.get('liquidity_usd', 0)
                     
-                    if abs(spread_pct) > 10 or price_ratio > 1.15 or min_liquidity < 100000:
-                        is_realistic = False
+#                     if abs(spread_pct) > 10 or price_ratio > 1.15 or min_liquidity < 100000:
+#                         is_realistic = False
                     
-                    # Показуємо тільки реальні цікаві спреди (>= 0.3%)
-                    if abs(spread_pct) >= 0.3 and is_realistic:
-                        clean_symbol = symbol.replace('/USDT:USDT', '')
-                        direction = "🟢 LONG" if spread_pct > 0 else "🔴 SHORT"
+#                     # Показуємо тільки реальні цікаві спреди (>= 0.3%)
+#                     if abs(spread_pct) >= 0.3 and is_realistic:
+#                         clean_symbol = symbol.replace('/USDT:USDT', '')
+#                         direction = "🟢 LONG" if spread_pct > 0 else "🔴 SHORT"
                         
-                        # Використовуємо функцію для отримання точного посилання на пару
-                        try:
-                            from utils import get_exact_dex_pair_info, get_proper_dexscreener_link
-                            exact_pair_info = get_exact_dex_pair_info(clean_symbol)
-                            if exact_pair_info and exact_pair_info.get('exact_pair_url'):
-                                dex_link = exact_pair_info['exact_pair_url']
-                            else:
-                                dex_link = get_proper_dexscreener_link(clean_symbol)
-                        except:
-                            dex_link = get_proper_dexscreener_link(clean_symbol)
+#                         # Використовуємо функцію для отримання точного посилання на пару
+#                         try:
+#                             from utils import get_exact_dex_pair_info, get_proper_dexscreener_link
+#                             exact_pair_info = get_exact_dex_pair_info(clean_symbol)
+#                             if exact_pair_info and exact_pair_info.get('exact_pair_url'):
+#                                 dex_link = exact_pair_info['exact_pair_url']
+#                             else:
+#                                 dex_link = get_proper_dexscreener_link(clean_symbol)
+#                         except:
+#                             dex_link = get_proper_dexscreener_link(clean_symbol)
                         
-                        signals_text += f"**{clean_symbol}** {direction}\n"
-                        signals_text += f"📊 XT: ${xt_price:.4f} | DexScreener: ${dex_price:.4f}\n"
-                        signals_text += f"💰 Спред: **{spread_pct:+.2f}%**\n"
-                        signals_text += f"💧 Ліквідність: ${min_liquidity:,.0f}\n"
-                        signals_text += f"🔍 [Графік DexScreener]({dex_link})\n"
-                        signals_text += "━━━━━━━━━━━━━━━━━━━━\n"
-                        current_signals.append((clean_symbol, spread_pct))
+#                         signals_text += f"**{clean_symbol}** {direction}\n"
+#                         signals_text += f"📊 XT: ${xt_price:.4f} | DexScreener: ${dex_price:.4f}\n"
+#                         signals_text += f"💰 Спред: **{spread_pct:+.2f}%**\n"
+#                         signals_text += f"💧 Ліквідність: ${min_liquidity:,.0f}\n"
+#                         signals_text += f"🔍 [Графік DexScreener]({dex_link})\n"
+#                         signals_text += "━━━━━━━━━━━━━━━━━━━━\n"
+#                         current_signals.append((clean_symbol, spread_pct))
                         
-            except Exception as e:
-                continue
+#             except Exception as e:
+#                 continue
         
-        if not current_signals:
-            signals_text += "❌ Зараз немає сигналів з спредом >= 0.3%\n"
-            signals_text += "📈 Бот сканує 596+ токенів автоматично...\n"
-        else:
-            signals_text += f"\n✅ Знайдено {len(current_signals)} можливостей!"
-            signals_text += f"\n🤖 Автосигнали надсилаються при спреді >= 0.5%"
+#         if not current_signals:
+#             signals_text += "❌ Зараз немає сигналів з спредом >= 0.3%\n"
+#             signals_text += "📈 Бот сканує 596+ токенів автоматично...\n"
+#         else:
+#             signals_text += f"\n✅ Знайдено {len(current_signals)} можливостей!"
+#             signals_text += f"\n🤖 Автосигнали надсилаються при спреді >= 0.5%"
         
-    except Exception as e:
-        signals_text = f"❌ **ПОМИЛКА СИГНАЛІВ:**\n\n{str(e)}"
+#     except Exception as e:
+#         signals_text = f"❌ **ПОМИЛКА СИГНАЛІВ:**\n\n{str(e)}"
     
-    await update.message.reply_text(signals_text, parse_mode='Markdown')
+#     await update.message.reply_text(signals_text, parse_mode='Markdown')
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show account balance with position counts"""

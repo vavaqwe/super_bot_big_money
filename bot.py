@@ -235,10 +235,12 @@ def check_and_switch_mode():
         
         if current_mode == TradingMode.CONSERVATIVE:
             # Перевіряємо умови для переходу в BULL
+            # Додано параметр: BULL_MODE_BTC_PRICE_THRESHOLD
             should_switch, reason = market_monitor.should_switch_to_bull(
-                BULL_MODE_RSI_THRESHOLD,
-                BULL_MODE_FEAR_GREED_THRESHOLD,
-                BULL_MODE_BTC_GROWTH_THRESHOLD
+                rsi_threshold=BULL_MODE_RSI_THRESHOLD,
+                fear_greed_threshold=BULL_MODE_FEAR_GREED_THRESHOLD,
+                btc_growth_threshold=BULL_MODE_BTC_GROWTH_THRESHOLD,
+                btc_price_threshold=BULL_MODE_BTC_PRICE_THRESHOLD 
             )
             
             if should_switch:
@@ -248,10 +250,12 @@ def check_and_switch_mode():
                 
         elif current_mode == TradingMode.BULL:
             # Перевіряємо умови для переходу в CONSERVATIVE
+            # Додано параметр: CONSERVATIVE_MODE_BTC_PRICE_THRESHOLD
             should_switch, reason = market_monitor.should_switch_to_conservative(
-                CONSERVATIVE_MODE_RSI_THRESHOLD,
-                CONSERVATIVE_MODE_FEAR_GREED_THRESHOLD,
-                CONSERVATIVE_MODE_BTC_DECLINE_THRESHOLD
+                rsi_threshold=CONSERVATIVE_MODE_RSI_THRESHOLD,
+                fear_greed_threshold=CONSERVATIVE_MODE_FEAR_GREED_THRESHOLD,
+                btc_decline_threshold=CONSERVATIVE_MODE_BTC_DECLINE_THRESHOLD,
+                btc_price_threshold=CONSERVATIVE_MODE_BTC_PRICE_THRESHOLD
             )
             
             if should_switch:
@@ -261,6 +265,57 @@ def check_and_switch_mode():
                 
     except Exception as e:
         logging.error(f"❌ Помилка перевірки умов переключення режиму: {e}")
+
+# def check_and_switch_mode():
+#     """
+#     Перевіряє ринкові умови і автоматично переключає режим якщо потрібно
+#     Викликається періодично (кожні 5 хвилин)
+#     """
+#     global last_mode_check_time, current_trading_mode
+    
+#     try:
+#         current_time = time.time()
+        
+#         # Перевіряємо чи пройшов достатній час від останньої перевірки
+#         if current_time - last_mode_check_time < MODE_CHECK_INTERVAL:
+#             return
+        
+#         last_mode_check_time = current_time
+        
+#         logging.info("🔍 Перевірка умов для переключення режиму торгівлі...")
+        
+#         # Перевіряємо поточний режим
+#         with mode_switch_lock:
+#             current_mode = current_trading_mode
+        
+#         if current_mode == TradingMode.CONSERVATIVE:
+#             # Перевіряємо умови для переходу в BULL
+#             should_switch, reason = market_monitor.should_switch_to_bull(
+#                 BULL_MODE_RSI_THRESHOLD,
+#                 BULL_MODE_FEAR_GREED_THRESHOLD,
+#                 BULL_MODE_BTC_GROWTH_THRESHOLD
+#             )
+            
+#             if should_switch:
+#                 switch_trading_mode(TradingMode.BULL, reason)
+#             else:
+#                 logging.info(f"ℹ️ Залишаємось в CONSERVATIVE режимі: {reason}")
+                
+#         elif current_mode == TradingMode.BULL:
+#             # Перевіряємо умови для переходу в CONSERVATIVE
+#             should_switch, reason = market_monitor.should_switch_to_conservative(
+#                 CONSERVATIVE_MODE_RSI_THRESHOLD,
+#                 CONSERVATIVE_MODE_FEAR_GREED_THRESHOLD,
+#                 CONSERVATIVE_MODE_BTC_DECLINE_THRESHOLD
+#             )
+            
+#             if should_switch:
+#                 switch_trading_mode(TradingMode.CONSERVATIVE, reason)
+#             else:
+#                 logging.info(f"ℹ️ Залишаємось в BULL режимі: {reason}")
+                
+#     except Exception as e:
+#         logging.error(f"❌ Помилка перевірки умов переключення режиму: {e}")
 
 # ------------------------------------------------------
 
@@ -609,8 +664,11 @@ def compute_cross_exchange_spread(position, symbol):
     try:
         arb_pair = position.get('arb_pair', 'xt-dex')
         
+        # 🔥 ОЧИЩЕННЯ СИМВОЛУ: ENJ/USDT:USDT -> ENJ
+        # Це виправляє помилку (None, None, None) при запиті до DEX
+        clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '')
+        
         if arb_pair == 'gate-dex':
-            # Gate.io відключена - повертаємо None
             return None, None, None
                 
         elif arb_pair == 'xt-dex':
@@ -618,14 +676,18 @@ def compute_cross_exchange_spread(position, symbol):
             xt_ticker = xt_client.fetch_xt_ticker(xt, symbol) if xt else None
             xt_price = float(xt_ticker['last']) if xt_ticker else None
             
-            dex_price = get_dex_price_simple(symbol, for_convergence=True)
+            # Передаємо ОЧИЩЕНИЙ символ
+            dex_price = get_dex_price_simple(clean_symbol, for_convergence=True)
             
             if xt_price and dex_price:
                 spread_pct = calculate_spread(dex_price, xt_price)
                 return abs(spread_pct), xt_price, dex_price
+            else:
+                # Логуємо причину, якщо ціни немає
+                if not dex_price:
+                    logging.warning(f"⚠️ Converg: Немає DEX ціни для {clean_symbol}")
                 
         elif arb_pair == 'gate-xt':
-            # Gate.io відключена - повертаємо None
             return None, None, None
                 
         return None, None, None
@@ -633,6 +695,36 @@ def compute_cross_exchange_spread(position, symbol):
     except Exception as e:
         logging.error(f"❌ Помилка розрахунку спреду {symbol}: {e}")
         return None, None, None
+
+# def compute_cross_exchange_spread(position, symbol):
+#     """📊 Розрахунок поточного спреду між біржами для перевірки конвергенції"""
+#     try:
+#         arb_pair = position.get('arb_pair', 'xt-dex')
+        
+#         if arb_pair == 'gate-dex':
+#             # Gate.io відключена - повертаємо None
+#             return None, None, None
+                
+#         elif arb_pair == 'xt-dex':
+#             # Отримуємо поточні ціни XT.com та DEX
+#             xt_ticker = xt_client.fetch_xt_ticker(xt, symbol) if xt else None
+#             xt_price = float(xt_ticker['last']) if xt_ticker else None
+            
+#             dex_price = get_dex_price_simple(symbol, for_convergence=True)
+            
+#             if xt_price and dex_price:
+#                 spread_pct = calculate_spread(dex_price, xt_price)
+#                 return abs(spread_pct), xt_price, dex_price
+                
+#         elif arb_pair == 'gate-xt':
+#             # Gate.io відключена - повертаємо None
+#             return None, None, None
+                
+#         return None, None, None
+        
+#     except Exception as e:
+#         logging.error(f"❌ Помилка розрахунку спреду {symbol}: {e}")
+#         return None, None, None
 
 def gate_close_position_market(symbol, side, size_usdt):
     """🔒 DEPRECATED: Перенаправлено на XT.com (Gate.io видалено)"""

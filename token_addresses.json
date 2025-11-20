@@ -223,13 +223,6 @@
     "name": "Celsius Token",
     "priority": 3
   },
-  "ENJ": {
-    "address": "0xf629cbd94d3791c9250152bd8dfbdf380e2a3b9c",
-    "chain": "ethereum",
-    "chainId": 1,
-    "name": "Enjin Coin",
-    "priority": 2
-  },
   "GRT": {
     "address": "0xc944E90C64B2c07662A292be6244BDf05Cda44a7",
     "chain": "ethereum",

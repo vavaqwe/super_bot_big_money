@@ -179,6 +179,11 @@ class DexCheckClient:
         try:
             clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '').upper()
             
+            # ДОДАТИ ЦЕЙ БЛОК 👇
+            if clean_symbol == 'ENJ':
+                logging.warning(f"🚫 {clean_symbol}: Примусово ігноруємо (Hardcoded Ignore)")
+                return None
+
             # 1. Перевіряємо кеш (окремий для конвергенції)
             cache_key = f"{clean_symbol}_best_pair{'_convergence' if for_convergence else ''}"
             if cache_key in self.token_cache:
@@ -334,7 +339,6 @@ class DexCheckClient:
             'GALA': 'gala',
             'CHZ': 'chiliz',
             'FLOW': 'flow',
-            'ENJ': 'enjincoin',
             'KAVA': 'kava',
             'CELO': 'celo',
             'ONE': 'harmony',

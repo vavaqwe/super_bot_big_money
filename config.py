@@ -44,42 +44,54 @@ SCAN_INTERVAL = 15  # ⚡ АКТИВНИЙ РЕЖИМ: швидке сканув
 # 🎯 ПАРАМЕТРИ РЕЖИМІВ ТОРГІВЛІ
 MODE_PARAMS = {
     TradingMode.CONSERVATIVE: {
-        "min_spread": 7.4,      # Мінімальний спред для входу
+        "min_spread": 7.6,      # Мінімальний спред для входу
         "leverage": 4,          # Леверидж 4x
-        "max_hold": 28,         # Максимум 28 хвилин утримання
-        "tp": 1.4,              # Take Profit 1.4%
-        "sl": -1.7              # Stop Loss -1.7%
+        "max_hold": 45,         # Максимум 28 хвилин утримання
+        "tp": 2.4,              # Take Profit 1.4%
+        "sl": -5.8              # Stop Loss -1.7%
     },
     TradingMode.BULL: {
-        "min_spread": 6.0,      # Менший спред для bull-ринку
-        "leverage": 6,          # Вищий леверидж 6x
-        "max_hold": 18,         # Швидше закриття 18 хвилин
-        "tp": 1.2,              # Take Profit 1.2%
-        "sl": -1.4              # Stop Loss -1.4%
+        "min_spread": 6.2,      # Менший спред для bull-ринку
+        "leverage": 5,          # Вищий леверидж 6x
+        "max_hold": 28,         # Швидше закриття 18 хвилин
+        "tp": 3.0,              # Take Profit 1.2%
+        "sl": -7.5              # Stop Loss -1.4%
     }
 }
 
 # 🔄 ПОРОГИ ДЛЯ ПЕРЕХОДУ CONSERVATIVE → BULL
-BULL_MODE_RSI_THRESHOLD = 50  # RSI > 50 (початок зростання)
-BULL_MODE_FEAR_GREED_THRESHOLD = 60  # Fear & Greed Index > 60 (жадібність)
-BULL_MODE_BTC_GROWTH_THRESHOLD = 3.0  # BTC зростання > 3% за останню годину
+BULL_MODE_BTC_PRICE_THRESHOLD = 100000  # BTC > 100k
+BULL_MODE_RSI_THRESHOLD = 50            # RSI > 50
+BULL_MODE_FEAR_GREED_THRESHOLD = 45     # Fear & Greed > 45
+BULL_MODE_BTC_GROWTH_THRESHOLD = 3.0    # BTC зростання > 3%
 
 # 🔄 ПОРОГИ ДЛЯ ПЕРЕХОДУ BULL → CONSERVATIVE
-CONSERVATIVE_MODE_RSI_THRESHOLD = 45  # RSI < 45 (початок падіння)
-CONSERVATIVE_MODE_FEAR_GREED_THRESHOLD = 50  # Fear & Greed Index < 50 (страх)
-CONSERVATIVE_MODE_BTC_DECLINE_THRESHOLD = -2.0  # BTC падіння > 2% за останню годину
+CONSERVATIVE_MODE_BTC_PRICE_THRESHOLD = 98000  # BTC < 98k
+CONSERVATIVE_MODE_RSI_THRESHOLD = 45           # RSI < 45
+CONSERVATIVE_MODE_FEAR_GREED_THRESHOLD = 35    # Fear & Greed < 35
+CONSERVATIVE_MODE_BTC_DECLINE_THRESHOLD = -2.0 # BTC падіння > 2%
+
+# # 🔄 ПОРОГИ ДЛЯ ПЕРЕХОДУ CONSERVATIVE → BULL
+# BULL_MODE_RSI_THRESHOLD = 50  # RSI > 50 (початок зростання)
+# BULL_MODE_FEAR_GREED_THRESHOLD = 60  # Fear & Greed Index > 60 (жадібність)
+# BULL_MODE_BTC_GROWTH_THRESHOLD = 3.0  # BTC зростання > 3% за останню годину
+
+# # 🔄 ПОРОГИ ДЛЯ ПЕРЕХОДУ BULL → CONSERVATIVE
+# CONSERVATIVE_MODE_RSI_THRESHOLD = 45  # RSI < 45 (початок падіння)
+# CONSERVATIVE_MODE_FEAR_GREED_THRESHOLD = 50  # Fear & Greed Index < 50 (страх)
+# CONSERVATIVE_MODE_BTC_DECLINE_THRESHOLD = -2.0  # BTC падіння > 2% за останню годину
 
 # 🎯 ПОТОЧНИЙ РЕЖИМ (за замовчуванням CONSERVATIVE)
 CURRENT_TRADING_MODE = TradingMode.CONSERVATIVE
 
 # Базові налаштування (залишаються для backwards compatibility)
-ORDER_AMOUNT = 5.0  # 🔧 ПОВЕРНУТО: $5.0 маржа
+ORDER_AMOUNT = 30.0  # 🔧 ПОВЕРНУТО: $5.0 маржа
 LEVERAGE = MODE_PARAMS[CURRENT_TRADING_MODE]["leverage"]  # Леверидж з поточного режиму
 MIN_SPREAD = MODE_PARAMS[CURRENT_TRADING_MODE]["min_spread"]  # Мінімальний спред з режиму
 MAX_SPREAD = 20  # % МАКСИМАЛЬНИЙ СПРЕД 50% (як просить користувач)
 MIN_NET_PROFIT_PERCENT = 0.1  # 🔧 ТЕСТ: ще більше зменшено для сигналів
 ESTIMATED_TRADING_COSTS_PERCENT = 0.6  # Очікувані витрати (комісії + slippage)
-MAX_OPEN_POSITIONS = 1  # Максимум позицій
+MAX_OPEN_POSITIONS = 6  # Максимум позицій
 MAX_PYRAMID = 2  # 🎯 ЗБІЛЬШЕНО: 1 початкова позиція + 1 усереднення = максимум 2 входи
 ORDER_BOOK_DEPTH = 20  # 🚀 ВИПРАВЛЕНО: збільшено до 20 рівнів для кращої аналітики ліквідності
 PNL_LEVELS = [25.0, 30.0]  # внутрішні PNL рівні (проценти)
@@ -106,7 +118,7 @@ HALF_MOVE_CLOSE = True  # Закривати при 50% руху від поча
 # ⏰ НОВИЙ ФІЛЬТР: таймер позицій (використовує max_hold з MODE_PARAMS)
 ENABLE_TIME_STOP = True  # Автозакриття позицій через певний час
 POSITION_MAX_AGE_SEC = MODE_PARAMS[CURRENT_TRADING_MODE]["max_hold"] * 60  # Конвертуємо хвилини в секунди
-MONITOR_INTERVAL_SEC = 10  # ⚡ ШВИДКИЙ МОНІТОРИНГ: перевірка позицій кожні 10 сек
+MONITOR_INTERVAL_SEC = 5  # ⚡ ШВИДКИЙ МОНІТОРИНГ: перевірка позицій кожні 10 сек
 MIN_HOLD_SEC = 10  # Мінімальний час утримання позиції (уникнення миттєвого закриття)
 USE_DEX_FOR_SPREAD = True  # Використовувати DEX ціни для розрахунку конвергенції
 TELEGRAM_COOLDOWN_SEC = 60  # 🎯 КУЛДАУН: 1 хвилина між Telegram повідомленнями як просить користувач
