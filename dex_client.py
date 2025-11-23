@@ -180,11 +180,15 @@ class DexCheckClient:
             clean_symbol = symbol.replace('/USDT:USDT', '').replace('/USDT', '').upper()
             
             # ДОДАТИ ЦЕЙ БЛОК 👇
-            if clean_symbol == 'ENJ':
+            if clean_symbol in 'ENJ':
                 logging.warning(f"🚫 {clean_symbol}: Примусово ігноруємо (Hardcoded Ignore)")
                 return None
 
             if clean_symbol == 'NAORIS':
+                logging.warning(f"🚫 {clean_symbol}: Примусово ігноруємо (Hardcoded Ignore)")
+                return None
+
+            if clean_symbol == 'GPS':
                 logging.warning(f"🚫 {clean_symbol}: Примусово ігноруємо (Hardcoded Ignore)")
                 return None
 
