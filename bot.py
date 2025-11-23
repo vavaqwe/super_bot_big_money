@@ -2390,7 +2390,10 @@ def symbol_worker(symbol):
                                 "trading_mode": current_mode_name,  # Режим торгівлі при відкритті
                                 "mode_leverage": current_leverage,  # Леверидж режиму
                                 "mode_tp_pct": current_tp_pct,  # TP% режиму
-                                "mode_sl_pct": current_sl_pct  # SL% режиму
+                                "mode_sl_pct": current_sl_pct,  # SL% режиму
+                                # 🎯 TRAILING STOP ПОЛЯ
+                                "max_pnl": 0.0,  # Максимальний PnL для trailing stop
+                                "trailing_active": False  # Чи активний trailing stop
                             }
                             # 🔒 ЗАХИСТ: Тільки для НОВИХ позицій встановлюємо таймери
                             current_time = time.time()
