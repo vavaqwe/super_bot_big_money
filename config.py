@@ -42,16 +42,18 @@ MODE_PARAMS = {
     TradingMode.CONSERVATIVE: {
         "min_spread": 7.6,      # Мінімальний спред для входу
         "leverage": 4,          # Леверидж 4x
-        "max_hold": 45,         # Максимум 28 хвилин утримання
-        "tp": 2.4,              # Take Profit 1.4%
-        "sl": -5.8              # Stop Loss -1.7%
+        "max_hold": 45,         # Максимум 45 хвилин утримання
+        "tp": 2.4,              # Take Profit 2.4%
+        "sl": -5.8,             # Stop Loss -5.8%
+        "trailing": 0.5         # Trailing stop 0.5%
     },
     TradingMode.BULL: {
         "min_spread": 6.2,      # Менший спред для bull-ринку
-        "leverage": 5,          # Вищий леверидж 6x
-        "max_hold": 28,         # Швидше закриття 18 хвилин
-        "tp": 3.0,              # Take Profit 1.2%
-        "sl": -7.5              # Stop Loss -1.4%
+        "leverage": 5,          # Вищий леверидж 5x
+        "max_hold": 28,         # Швидше закриття 28 хвилин
+        "tp": 3.0,              # Take Profit 3.0%
+        "sl": -7.5,             # Stop Loss -7.5%
+        "trailing": 0.6         # Trailing stop 0.6%
     }
 }
 
