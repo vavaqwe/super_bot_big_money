@@ -27,6 +27,86 @@ from datetime import datetime
 import threading
 from market_conditions import market_monitor
 
+# ====================== АНТІ-ШИТКОЇН ФІЛЬТРИ ======================
+def is_shitcoin(base_symbol: str, pair_data: dict) -> bool:
+    """
+    Перевіряє чи є токен шиткоїном на основі 4 жорстких фільтрів:
+    1. Ліквідність < $180,000
+    2. Об'єм 24h < $2,500,000
+    3. Волатильність >8% за 5 хв або >35% за 1 год
+    4. Вік токену < 14 днів
+    
+    Returns:
+        True якщо токен є шиткоїном (треба блокувати)
+        False якщо токен пройшов всі фільтри
+    """
+    if not pair_data:
+        logging.warning(f"⚠️ [{base_symbol}] Немає даних пари - блокуємо")
+        return True
+
+    # 1. ФІЛЬТР ЛІКВІДНОСТІ
+    liquidity = float(pair_data.get("liquidity", 0))
+    if liquidity < ANTI_SHITCOIN_MIN_LIQUIDITY:
+        logging.warning(f"❌ [{base_symbol}] ШИТКОЇН: ліквідність ${liquidity:,.0f} < ${ANTI_SHITCOIN_MIN_LIQUIDITY:,}")
+        return True
+
+    # 2. ФІЛЬТР ОБ'ЄМУ 24H
+    volume_24h = float(pair_data.get("volume_24h", 0))
+    if volume_24h < ANTI_SHITCOIN_MIN_VOLUME_24H:
+        logging.warning(f"❌ [{base_symbol}] ШИТКОЇН: об'єм 24h ${volume_24h:,.0f} < ${ANTI_SHITCOIN_MIN_VOLUME_24H:,}")
+        return True
+
+    # 3. ФІЛЬТР ВОЛАТИЛЬНОСТІ (перевіряємо зміни ціни)
+    try:
+        # Отримуємо зміни ціни з advanced_metrics якщо є
+        price_change_5m = abs(float(pair_data.get("price_change_5m", 0)))
+        price_change_1h = abs(float(pair_data.get("price_change_1h", 0)))
+        
+        if price_change_5m > ANTI_SHITCOIN_MAX_VOLATILITY_5M:
+            logging.warning(f"❌ [{base_symbol}] ШИТКОЇН: волатильність 5м {price_change_5m:.1f}% > {ANTI_SHITCOIN_MAX_VOLATILITY_5M}%")
+            return True
+            
+        if price_change_1h > ANTI_SHITCOIN_MAX_VOLATILITY_1H:
+            logging.warning(f"❌ [{base_symbol}] ШИТКОЇН: волатильність 1г {price_change_1h:.1f}% > {ANTI_SHITCOIN_MAX_VOLATILITY_1H}%")
+            return True
+    except Exception as e:
+        logging.debug(f"⚠️ [{base_symbol}] Не вдалося перевірити волатильність: {e}")
+
+    # 4. ФІЛЬТР ВІКУ ТОКЕНУ
+    try:
+        pair_created_at = pair_data.get("pairCreatedAt", 0)
+        if pair_created_at and pair_created_at > 0:
+            # Конвертуємо мілісекунди в дні
+            age_days = (time.time() - (pair_created_at / 1000)) / 86400
+            if age_days < ANTI_SHITCOIN_MIN_TOKEN_AGE_DAYS:
+                logging.warning(f"❌ [{base_symbol}] ШИТКОЇН: вік токену {age_days:.1f} днів < {ANTI_SHITCOIN_MIN_TOKEN_AGE_DAYS} днів")
+                return True
+    except Exception as e:
+        logging.debug(f"⚠️ [{base_symbol}] Не вдалося перевірити вік токену: {e}")
+
+    # Всі фільтри пройдено!
+    logging.info(f"✅ [{base_symbol}] Пройшов анті-шиткоїн фільтри")
+    return False
+
+def check_long_overheat(pair_data: dict, base_symbol: str) -> bool:
+    """
+    Перевіряє чи перегрітий токен для відкриття LONG позиції
+    Блокує LONG якщо зріст >6% за 5 хвилин
+    
+    Returns:
+        True якщо перегрітий (треба блокувати LONG)
+        False якщо можна відкривати LONG
+    """
+    try:
+        price_change_5m = float(pair_data.get("price_change_5m", 0))
+        if price_change_5m > LONG_OVERHEAT_THRESHOLD:
+            logging.warning(f"🔥 [{base_symbol}] ПЕРЕГРІВ: LONG блокується, зріст {price_change_5m:.1f}% за 5 хв > {LONG_OVERHEAT_THRESHOLD}%")
+            return True
+        return False
+    except Exception as e:
+        logging.debug(f"⚠️ [{base_symbol}] Помилка перевірки перегріву: {e}")
+        return False
+
 # XT.com - ДВА ПАРАЛЕЛЬНИХ АКАУНТИ
 xt_account_1 = create_xt(api_key=XT_API_KEY, api_secret=XT_API_SECRET, account_name="Account 1")  # Перший акаунт
 
