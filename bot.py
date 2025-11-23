@@ -1923,6 +1923,13 @@ def symbol_worker(symbol):
         trading_exchange = "xt"  # ЗАВЖДИ торгуємо на XT
         ref_price = xt_price  # ВИПРАВЛЕНО: XT ціна для XT біржі
         
+        # 🛡️ ЗАХИСТ ВІД ПЕРЕГРІВУ ДЛЯ LONG ПОЗИЦІЙ
+        if best_direction == "LONG":
+            base_symbol = symbol.replace('/USDT:USDT', '').replace('_USDT', '')
+            if check_long_overheat(token_info, base_symbol):
+                logging.warning(f"🔥 [{symbol}] LONG блокується через перегрів!")
+                return
+        
         spread_pct = best_spread
         spread_store.append(spread_pct)
         
