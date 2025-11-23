@@ -8,11 +8,7 @@ load_dotenv()
 class TradingMode(Enum):
     CONSERVATIVE = "conservative"  # Консервативний режим (поточний)
     BULL = "bull"  # Булл-режим (при recovery)
-# ПЕРЕД ЗАПУСКОМ: вставте свої ключі через Environment Variables на Replit
-# ВИДАЛЕНО Gate.io - тепер тільки XT.com + DexCheck API
-# GATE_API_KEY = os.getenv("GATE_API_KEY", "")   
-# GATE_API_SECRET = os.getenv("GATE_API_SECRET", "")
-
+    
 # XT Біржа - ПЕРШИЙ АКАУНТ
 XT_API_KEY = os.getenv("XT_API_KEY", "")
 XT_API_SECRET = os.getenv("XT_API_SECRET", "")

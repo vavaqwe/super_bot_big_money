@@ -696,8 +696,8 @@ def xt_close_position_market(xt, symbol, side, usd_amount):
             logging.warning(f"[XT {symbol}] ⚠️ Помилка робастного P&L розрахунку: {e}")
         
         # Відправляємо Telegram сповіщення з реальним P&L
-        from utils import send_telegram_trade_notification
-        send_telegram_trade_notification(symbol, side, notional_value, instant_price, action="CLOSED (XT)", profit=real_pnl_dollars)
+        # from utils import send_telegram_trade_notification
+        # send_telegram_trade_notification(symbol, side, notional_value, instant_price, action="CLOSED (XT)", profit=real_pnl_dollars)
         
         return True
     except Exception as e:

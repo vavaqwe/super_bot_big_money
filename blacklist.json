@@ -1,7 +1,8 @@
 {
     "banned_symbols": [],
     "loss_counts": {
-        "VIRTUAL/USDT:USDT": 1,
-        "MNT/USDT:USDT": 1
+        "PARTI/USDT:USDT": 0,
+        "GPS/USDT:USDT": 0,
+        "SPELL/USDT:USDT": 1
     }
 }

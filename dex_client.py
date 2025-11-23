@@ -184,6 +184,10 @@ class DexCheckClient:
                 logging.warning(f"🚫 {clean_symbol}: Примусово ігноруємо (Hardcoded Ignore)")
                 return None
 
+            if clean_symbol == 'NAORIS':
+                logging.warning(f"🚫 {clean_symbol}: Примусово ігноруємо (Hardcoded Ignore)")
+                return None
+
             # 1. Перевіряємо кеш (окремий для конвергенції)
             cache_key = f"{clean_symbol}_best_pair{'_convergence' if for_convergence else ''}"
             if cache_key in self.token_cache:
