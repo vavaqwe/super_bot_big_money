@@ -1153,10 +1153,57 @@ def monitor_open_positions():
                 position_sl = abs(position.get('mode_sl_pct', -STOP_LOSS_PCT))  # Абсолютне значення SL з режиму позиції
                 position_mode = position.get('trading_mode', 'UNKNOWN')
                 
-                # 🔍 ДЕТАЛЬНЕ ЛОГУВАННЯ PnL ПЕРЕВІРОК З РЕЖИМОМ
-                logging.info(f"📊 [{symbol}] PnL CHECK: {pnl_pct:+.2f}% | TP={position_tp}% | SL=-{position_sl}% | Режим={position_mode}")
+                # 🎯 TRAILING STOP ЛОГІКА
+                # Отримуємо trailing параметри з режиму позиції
+                mode_params_dict = MODE_PARAMS.get(TradingMode.CONSERVATIVE if position_mode == 'CONSERVATIVE' else TradingMode.BULL, MODE_PARAMS[TradingMode.CONSERVATIVE])
+                trailing_pct = mode_params_dict.get('trailing', 0.5)
                 
-                if pnl_pct >= position_tp:
+                # Отримуємо або ініціалізуємо max_pnl
+                max_pnl = position.get('max_pnl', 0.0)
+                trailing_active = position.get('trailing_active', False)
+                
+                # Оновлюємо максимальний PnL якщо поточний вище
+                if pnl_pct > max_pnl:
+                    max_pnl = pnl_pct
+                    with active_positions_lock:
+                        if symbol in active_positions:
+                            active_positions[symbol]['max_pnl'] = max_pnl
+                            # Активуємо trailing якщо досягли TP
+                            if max_pnl >= position_tp:
+                                active_positions[symbol]['trailing_active'] = True
+                                trailing_active = True
+                                logging.info(f"🎯 [{symbol}] TRAILING АКТИВОВАНО! Max PnL: {max_pnl:.2f}%")
+                
+                # Перевірка trailing stop якщо він активний
+                if trailing_active and max_pnl > 0:
+                    # Розраховуємо поріг trailing stop
+                    trailing_threshold = max_pnl - trailing_pct
+                    
+                    if pnl_pct <= trailing_threshold:
+                        logging.info(f"🎯 TRAILING STOP [{symbol}] PnL={pnl_pct:.2f}% ≤ {trailing_threshold:.2f}% (Max={max_pnl:.2f}% - {trailing_pct}%) → CLOSE")
+                        reason = f"Trailing Stop: {pnl_pct:.1f}% від піку {max_pnl:.1f}%"
+                        
+                        # Повідомлення про trailing stop
+                        trailing_signal = f"🎯 **TRAILING STOP СПРАЦЮВАВ!**\n"\
+                                        f"📊 Символ: **{symbol.replace('/USDT:USDT', '')}** ({position['side']})\n"\
+                                        f"💰 Розмір: **${position['size_usdt']:.2f}**\n"\
+                                        f"📈 Максимальний PnL: **{max_pnl:+.2f}%**\n"\
+                                        f"📉 Поточний PnL: **{pnl_pct:+.2f}%**\n"\
+                                        f"⚡ Trailing: **{trailing_pct}%**\n"\
+                                        f"💎 Реалізований прибуток: **${(position['size_usdt'] * pnl_pct / 100):+.2f}**\n"\
+                                        f"✨ Фіксуємо прибуток!\n"\
+                                        f"⏰ Час: **{time.strftime('%H:%M:%S %d.%m.%Y')}**"
+                        send_to_admins_and_group(trailing_signal)
+                        
+                        positions_to_close.append((symbol, position, reason, pnl_pct))
+                        continue
+                
+                # 🔍 ДЕТАЛЬНЕ ЛОГУВАННЯ PnL ПЕРЕВІРОК З РЕЖИМОМ
+                trailing_info = f" | Trailing: {'✅' if trailing_active else '❌'} Max={max_pnl:.2f}%" if trailing_active else ""
+                logging.info(f"📊 [{symbol}] PnL CHECK: {pnl_pct:+.2f}% | TP={position_tp}% | SL=-{position_sl}% | Режим={position_mode}{trailing_info}")
+                
+                # Статична перевірка TP (якщо trailing не активний)
+                if pnl_pct >= position_tp and not trailing_active:
                     logging.info(f"🎯 TP TRIGGERED [{symbol}] PnL={pnl_pct:.2f}% >= +{position_tp:.2f}% → CLOSE (Режим: {position_mode})")
                     reason = f"TP +{pnl_pct:.1f}% (Режим: {position_mode})"
                     positions_to_close.append((symbol, position, reason, pnl_pct))
