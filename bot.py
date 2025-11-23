@@ -1874,8 +1874,22 @@ def symbol_worker(symbol):
                 'liquidity': advanced_metrics.get('liquidity', 0),
                 'volume_24h': advanced_metrics.get('volume_24h', 0),
                 'dex_link': advanced_metrics.get('exact_pair_url') or get_proper_dexscreener_link(symbol),
-                'quote_symbol': advanced_metrics.get('quote_symbol', 'USDT')  # 🔧 ДОДАНО: зберігаємо quote валюту
+                'quote_symbol': advanced_metrics.get('quote_symbol', 'USDT'),  # 🔧 ДОДАНО: зберігаємо quote валюту
+                'price_change_5m': advanced_metrics.get('priceChange', {}).get('m5', 0),  # Зміна за 5 хв
+                'price_change_1h': advanced_metrics.get('priceChange', {}).get('h1', 0),  # Зміна за 1 год
+                'pairCreatedAt': advanced_metrics.get('pairCreatedAt', 0)  # Час створення пари
             }
+            
+            # 🔥 ЖОРСТКІ АНТІ-ШИТКОЇН ФІЛЬТРИ
+            base_symbol = symbol.replace('/USDT:USDT', '').replace('_USDT', '')
+            if is_shitcoin(base_symbol, token_info):
+                # Додаємо в блеклист для економії ресурсів
+                with blacklist_lock:
+                    if symbol not in blacklist_data["banned_symbols"]:
+                        blacklist_data["banned_symbols"].append(symbol)
+                        save_blacklist()
+                logging.warning(f"⛔ [{symbol}] ШИТКОЇН ВІДСІЯНО - додано в блеклист")
+                return
             
             # Коротка інформація про токен (зменшено логування)
             dex_quote = token_info.get('quote_symbol', 'USDT')
